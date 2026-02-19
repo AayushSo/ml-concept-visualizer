@@ -1,11 +1,11 @@
 <!doctype html>
-<!-- Brief: Visualization of weight-stationary dataflow and loop-nest mapping. -->
+<!-- Brief: Visualization of input-stationary dataflow and loop-nest mapping. -->
 <html lang="en">
 
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Convolution - Weight Stationary Animation</title>
+    <title>Convolution - Input Stationary Animation</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style type="text/tailwindcss">
         @import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap");
@@ -69,10 +69,13 @@
     <div class="max-w-6xl mx-auto">
         <header class="mb-8 text-center">
             <h1 class="text-3xl font-bold text-slate-800 mb-2">
-                Loop Nest in Convolution – Weight Stationary
+                Loop Nest in Convolution – Input Stationary
             </h1>
             <div class="text-xl text-blue-600 font-serif italic">
                 O<sub>q</sub> = &sum;<sub>s</sub> I<sub>q+s</sub> &times; F<sub>s</sub>
+            </div>
+            <div class="text-sm text-slate-500 font-mono">
+                q = w - s &nbsp;&mdash;&nbsp; keep i[w] in place while filters move
             </div>
         </header>
 
@@ -84,11 +87,8 @@
                         Strategy Selection
                     </h3>
                     <div class="mode-toggle">
-                        <button id="standardModeBtn" class="mode-btn active">
-                            Standard WS
-                        </button>
-                        <button id="tiledModeBtn" class="mode-btn">Tiled WS</button>
-                        <button id="parallelModeBtn" class="mode-btn">Parallel WS</button>
+                        <button id="standardModeBtn" class="mode-btn active">Standard IS</button>
+                        <button id="tiledModeBtn" class="mode-btn">Tiled IS</button>
                     </div>
 
                     <h3
@@ -96,7 +96,6 @@
                         Execution Controller
                     </h3>
 
-                    <!-- Primary Controls Group -->
                     <div class="flex flex-col items-center gap-6 mb-8">
                         <div class="flex items-center gap-3">
                             <button id="backBtn" class="btn-control btn-nav" title="Previous Step">
@@ -106,11 +105,11 @@
                                     <path d="m15 18-6-6 6-6" />
                                 </svg>
                             </button>
-
                             <button id="playBtn" class="btn-control btn-play" title="Play / Pause">
-                                <span id="playIcon" class="text-xl ml-0.5">▶</span>
+                                <svg id="playIcon" class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z" />
+                                </svg>
                             </button>
-
                             <button id="nextBtn" class="btn-control btn-nav" title="Next Step">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -136,9 +135,9 @@
                             <div
                                 class="flex justify-between text-[10px] font-bold text-slate-500 mb-2 tracking-widest uppercase">
                                 <span>Playback Speed</span>
-                                <span id="speedVal">50%</span>
+                                <span id="speedVal">100%</span>
                             </div>
-                            <input type="range" id="speedRange" min="1" max="100" value="50"
+                            <input id="speedRange" type="range" min="10" max="300" value="100"
                                 class="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-600" />
                         </div>
 
@@ -157,7 +156,7 @@
                                     Indices
                                 </div>
                                 <div id="indexDisplay" class="text-lg font-mono font-bold text-slate-700">
-                                    s:0, q:0
+                                    w:0, s:0, q:0
                                 </div>
                             </div>
                         </div>
@@ -167,10 +166,16 @@
                                 Reuse Distance (Standard)
                             </div>
                             <div class="text-[11px] font-mono font-bold text-slate-700 space-y-0.5">
-                                <div>Input i: <span id="reuseInput">3</span></div>
-                                <div>Weight f: <span id="reuseWeight">1</span></div>
-                                <div>Output o: <span id="reuseOutput">4</span></div>
+                                <div>Input i: <span id="reuseInput">1</span></div>
+                                <div>Weight f: <span id="reuseWeight">4</span></div>
+                                <div>Output o: <span id="reuseOutput">5</span></div>
                             </div>
+                        </div>
+
+                        <div class="bg-blue-50 border border-blue-100 p-3 rounded-xl text-[11px] text-blue-900 leading-relaxed">
+                            In this 1D toy setup, tiled Input-Stationary preserves almost the same access order as standard,
+                            so reuse distances stay similar. Tiling still helps in larger real workloads by improving
+                            working-set fit, cache/TLB locality, and parallel scheduling.
                         </div>
                     </div>
                 </div>
@@ -209,9 +214,8 @@
                             Operational Logic (Standard):
                         </p>
                         <p id="logicDesc">
-                            In this setup, the weight register holds <b>f[s]</b> constant
-                            while the inner loop streams <b>i[w]</b> and updates
-                            <b>o[q]</b>. This minimizes weight memory bandwidth.
+                            In this setup, the input register holds <b>i[w]</b> constant while the inner loop sweeps
+                            <b>f[s]</b> and updates destination outputs <b>o[q]</b>, where <b>q = w - s</b>.
                         </p>
                         <div class="mt-4 pt-3 border-t border-blue-200/70">
                             <div class="text-[10px] font-bold text-blue-700 uppercase tracking-[0.2em] mb-2">
@@ -220,17 +224,17 @@
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-blue-900">
                                 <div class="flex items-start gap-2.5">
                                     <span class="w-4 h-4 rounded-sm border-2 border-blue-700 bg-blue-200 mt-0.5"></span>
-                                    <span>Active input: <span id="legendInputText" class="code-font font-semibold text-blue-900">w = q + s</span></span>
+                                    <span>Active input: <span class="code-font font-semibold text-blue-900">w</span></span>
                                 </div>
                                 <div class="flex items-start gap-2.5">
                                     <span class="w-4 h-4 rounded-sm border-2 border-green-600 bg-green-200 mt-0.5"></span>
-                                    <span>Active filter: <span id="legendFilterText" class="code-font font-semibold text-green-800">s</span></span>
+                                    <span>Active filter: <span class="code-font font-semibold text-green-800">s</span></span>
                                 </div>
                                 <div class="flex items-start gap-2.5">
                                     <span class="w-4 h-4 rounded-sm border border-blue-300 bg-blue-50 relative mt-0.5">
                                         <span class="absolute left-0.5 top-0.5 w-1 h-1 bg-red-600"></span>
                                     </span>
-                                    <span>Red marker: <span id="legendMarkerText" class="code-font font-semibold text-rose-700">window start q / filter[0]</span></span>
+                                    <span>Red marker: filter start <span class="code-font font-semibold text-rose-700">q = w - s / filter[0]</span></span>
                                 </div>
                             </div>
                         </div>
@@ -242,7 +246,6 @@
             <div class="lg:col-span-3">
                 <div id="codeContainer"
                     class="bg-slate-900 text-slate-300 p-8 rounded-2xl shadow-inner code-font text-sm leading-relaxed overflow-hidden border border-slate-800 relative">
-                    <!-- Content injected by JavaScript -->
                 </div>
             </div>
         </div>
@@ -259,7 +262,6 @@
             const resetBtn = document.getElementById("resetBtn");
             const standardBtn = document.getElementById("standardModeBtn");
             const tiledBtn = document.getElementById("tiledModeBtn");
-            const parallelBtn = document.getElementById("parallelModeBtn");
             const codeContainer = document.getElementById("codeContainer");
 
             const speedRange = document.getElementById("speedRange");
@@ -274,184 +276,153 @@
             const reuseInput = document.getElementById("reuseInput");
             const reuseWeight = document.getElementById("reuseWeight");
             const reuseOutput = document.getElementById("reuseOutput");
-            const legendInputText = document.getElementById("legendInputText");
-            const legendFilterText = document.getElementById("legendFilterText");
-            const legendMarkerText = document.getElementById("legendMarkerText");
 
-            // Parameters
-            const S = 4;
-            const Q = 4;
-            const S0 = 2;
-            const S1 = S / S0;
-            const Q0 = 2; // Tile size
-            const Q1 = Q / Q0; // Number of tiles
-            let totalSteps = S * Q;
-
-            // Data arrays
+            // Data arrays (intentionally small for pedagogy)
             const inputArr = [0, 1, 2, 3, 4, 5, 6];
             const filterArr = [0, 1, 2, 3];
             const outputArr = [0, 0, 0, 0];
+
+            const W = inputArr.length;
+            const S = filterArr.length;
+            const Q = outputArr.length;
+            const outputMinQ = -(S - 1);
+            const outputMaxQ = 7;
+            const outputQAxis = Array.from(
+                { length: outputMaxQ - outputMinQ + 1 },
+                (_, i) => outputMinQ + i,
+            );
+            const outputSlotByQ = new Map(outputQAxis.map((q, idx) => [q, idx]));
+
+            // Tile along the input axis
+            const W0 = 2;
+            const W1 = Math.ceil(W / W0);
+
+            const standardSteps = [];
+            for (let w = 0; w < W; w++) {
+                for (let s = 0; s < S; s++) {
+                    standardSteps.push({ w, s });
+                }
+            }
+
+            const tiledSteps = [];
+            for (let w1 = 0; w1 < W1; w1++) {
+                for (let w0 = 0; w0 < W0; w0++) {
+                    const w = w1 * W0 + w0;
+                    if (w >= W) continue;
+                    for (let s = 0; s < S; s++) {
+                        tiledSteps.push({ w, s, w0, w1 });
+                    }
+                }
+            }
+
+            const totalStepsByMode = {
+                standard: standardSteps.length,
+                tiled: tiledSteps.length,
+            };
+
+            const lineCountMap = { standard: 4, tiled: 8 };
+            const highlightLineMap = { standard: 4, tiled: 8 };
 
             // State
             let currentStep = 0;
             let isPlaying = false;
             let lastTime = 0;
-            let mode = "standard"; // 'standard' or 'tiled'
+            let mode = "standard";
+            let totalSteps = totalStepsByMode[mode];
 
-            // Visual Constants
+            // Visual constants
             const boxSize = 50;
             const gap = 12;
             const startY = 80;
+            const filterRowY = startY + 100;
+            const outputRowY = startY + 200;
 
             const standardCode = `
-                <div class="mb-4 text-slate-500 text-xs font-bold tracking-widest uppercase"># Standard Weight Stationary</div>
-                <div id="line-1" class="py-1 px-4 rounded transition-colors">for <span class="text-blue-400">s</span> in <span class="text-purple-400">range</span>(S):</div>
-                <div id="line-2" class="py-1 px-4 ml-8 rounded transition-colors">for <span class="text-blue-400">q</span> in <span class="text-purple-400">range</span>(Q):</div>
-                <div id="line-3" class="py-1 px-4 ml-16 rounded transition-colors text-slate-500 text-xs">w = q + s</div>
+                <div class="mb-4 text-slate-500 text-xs font-bold tracking-widest uppercase"># Standard Input Stationary</div>
+                <div class="py-0.5 px-4 rounded text-slate-500"># i[W] - input activations</div>
+                <div class="py-0.5 px-4 rounded text-slate-500"># f[S] - filter weights</div>
+                <div class="py-0.5 px-4 rounded text-slate-500 mb-2"># o[Q] - output activations</div>
+                <div id="line-1" class="py-1 px-4 rounded transition-colors"><span class="text-emerald-600">for</span> w in <span class="text-blue-500">range</span>(W):</div>
+                <div id="line-2" class="py-1 px-4 ml-8 rounded transition-colors"><span class="text-emerald-600">for</span> s in <span class="text-blue-500">range</span>(S):</div>
+                <div id="line-3" class="py-1 px-4 ml-16 rounded transition-colors">q = w-s</div>
                 <div id="line-4" class="py-1 px-4 ml-16 rounded flex items-center gap-4 transition-colors">
-                    <span><span class="text-rose-400">o</span>[q] += <span class="text-emerald-400">i</span>[w] * <span class="text-amber-400">f</span>[s]</span>
-                    <span id="statLabel" class="hidden text-[10px] bg-amber-500/20 text-amber-500 border border-amber-500/30 px-2 py-0.5 rounded-full animate-pulse uppercase font-bold tracking-wider">Stationary</span>
+                    <span><strong>o</strong>[q] += <strong>i</strong>[w] * <strong>f</strong>[s]</span>
+                    <span id="statLabel" style="display: none;" class="ml-auto text-emerald-600 text-xs font-bold">📍 i[w] stays put</span>
                 </div>
             `;
 
             const tiledCode = `
-                <div class="mb-4 text-slate-500 text-xs font-bold tracking-widest uppercase"># Tiled Weight Stationary</div>
-                <div id="line-1" class="py-1 px-4 rounded transition-colors">for <span class="text-indigo-400">q1</span> in <span class="text-purple-400">range</span>(Q1):</div>
-                <div id="line-2" class="py-1 px-4 ml-8 rounded transition-colors">for <span class="text-blue-400">s</span> in <span class="text-purple-400">range</span>(S):</div>
-                <div id="line-3" class="py-1 px-4 ml-16 rounded transition-colors">for <span class="text-cyan-400">q0</span> in <span class="text-purple-400">range</span>(Q0):</div>
-                <div id="line-4" class="py-1 px-4 ml-24 rounded text-slate-500 text-xs">q = q1*Q0 + q0; w = q + s</div>
-                <div id="line-5" class="py-1 px-4 ml-24 rounded flex items-center gap-4 transition-colors">
-                    <span><span class="text-rose-400">o</span>[q] += <span class="text-emerald-400">i</span>[w] * <span class="text-amber-400">f</span>[s]</span>
-                    <span id="statLabel" class="hidden text-[10px] bg-amber-500/20 text-amber-500 border border-amber-500/30 px-2 py-0.5 rounded-full animate-pulse uppercase font-bold tracking-wider">Stationary</span>
+                <div class="mb-4 text-slate-500 text-xs font-bold tracking-widest uppercase"># Tiled Input Stationary</div>
+                <div id="line-1" class="py-1 px-4 rounded transition-colors">for <span class="text-indigo-400">w1</span> in <span class="text-purple-400">range</span>(W1):</div>
+                <div id="line-2" class="py-1 px-4 ml-8 rounded transition-colors">for <span class="text-cyan-400">w0</span> in <span class="text-purple-400">range</span>(W0):</div>
+                <div id="line-3" class="py-1 px-4 ml-16 rounded transition-colors text-slate-500 text-xs">w = w1*W0 + w0</div>
+                <div id="line-4" class="py-1 px-4 ml-16 rounded transition-colors text-slate-500 text-xs">if w &gt;= W: continue</div>
+                <div id="line-5" class="py-1 px-4 ml-16 rounded transition-colors">for <span class="text-blue-400">s</span> in <span class="text-purple-400">range</span>(S):</div>
+                <div id="line-6" class="py-1 px-4 ml-24 rounded transition-colors text-slate-500 text-xs">q = w - s</div>
+                <div id="line-7" class="py-1 px-4 ml-24 rounded transition-colors text-slate-500 text-xs">if 0 &lt;= q &lt; Q:</div>
+                <div id="line-8" class="py-1 px-4 ml-32 rounded flex items-center gap-4 transition-colors">
+                    <span>o[q] += i[<span class="text-green-400">w</span>] * f[<span class="text-amber-400">s</span>]</span>
+                    <span id="statLabel" style="display: none;" class="ml-auto text-emerald-600 text-xs font-bold">📍 i[w] stays put</span>
                 </div>
             `;
-
-            const parallelCode = `
-                <div class="mb-4 text-slate-500 text-xs font-bold tracking-widest uppercase"># Parallel Weight Stationary (S0 = 2 lanes)</div>
-                <div id="line-1" class="py-1 px-4 rounded transition-colors">for <span class="text-indigo-400">s1</span> in <span class="text-purple-400">range</span>(S1):</div>
-                <div id="line-2" class="py-1 px-4 ml-8 rounded transition-colors">for <span class="text-blue-400">q</span> in <span class="text-purple-400">range</span>(Q):</div>
-                <div id="line-3" class="py-1 px-4 ml-16 rounded transition-colors">parallel-for <span class="text-cyan-400">s0</span> in <span class="text-purple-400">range</span>(S0):</div>
-                <div id="line-4" class="py-1 px-4 ml-24 rounded text-slate-500 text-xs">s = s1*S0 + s0; w = q + s</div>
-                <div id="line-5" class="py-1 px-4 ml-24 rounded flex items-center gap-4 transition-colors">
-                    <span><span class="text-rose-400">o</span>[q] += <span class="text-emerald-400">i</span>[w] * <span class="text-amber-400">f</span>[s]</span>
-                    <span id="statLabel" class="hidden text-[10px] bg-amber-500/20 text-amber-500 border border-amber-500/30 px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">2-way Parallel</span>
-                </div>
-                <div id="line-6" class="py-1 px-4 ml-24 rounded text-[11px] text-slate-400">lane A: s0=0, lane B: s0=1 (both advance together each step)</div>
-            `;
-
-            function getTotalSteps() {
-                return mode === "parallel" ? S1 * Q : S * Q;
-            }
 
             function updateUI() {
-                if (mode === "standard") {
-                    codeContainer.innerHTML = standardCode;
-                    document.getElementById("logicTitle").innerText = "Operational Logic (Standard):";
-                    document.getElementById("logicDesc").innerHTML = "Weight <b>f[s]</b> is held constant while the inner loop streams <b>all</b> output activations <b>q</b>.";
-                    legendInputText.innerText = "w = q + s";
-                    legendFilterText.innerText = "s";
-                    legendMarkerText.innerText = "window start q / filter[0]";
-                } else if (mode === "tiled") {
-                    codeContainer.innerHTML = tiledCode;
-                    document.getElementById("logicTitle").innerText = "Operational Logic (Tiled):";
-                    document.getElementById("logicDesc").innerHTML = "Outputs are divided into tiles. For each tile <b>q1</b>, we iterate over all weights <b>s</b>, re-using <b>f[s]</b> for just a small block of local outputs <b>q0</b>.";
-                    legendInputText.innerText = "w = q + s";
-                    legendFilterText.innerText = "s";
-                    legendMarkerText.innerText = "window start q / filter[0]";
-                } else {
-                    codeContainer.innerHTML = parallelCode;
-                    document.getElementById("logicTitle").innerText = "Operational Logic (Parallel):";
-                    document.getElementById("logicDesc").innerHTML = "The weight dimension is split into two synchronized lanes (<b>s0=0</b>, <b>s0=1</b>). Each global step computes two MACs in parallel for the same output <b>q</b>.";
-                    legendInputText.innerText = "lane A: wA, lane B: wB";
-                    legendFilterText.innerText = "lane A: sA, lane B: sB";
-                    legendMarkerText.innerText = "left lane alignment anchor";
-                }
+                codeContainer.innerHTML = mode === "standard" ? standardCode : tiledCode;
+                totalSteps = totalStepsByMode[mode];
+                totalStepsText.innerText = totalSteps;
+                document.getElementById("logicTitle").innerText =
+                    mode === "standard"
+                        ? "Operational Logic (Standard):"
+                        : "Operational Logic (Tiled):";
+                document.getElementById("logicDesc").innerHTML =
+                    mode === "standard"
+                        ? "In this setup, the input register holds <b>i[w]</b> constant while the inner loop sweeps <b>f[s]</b> and updates destination outputs <b>o[q]</b>, where <b>q = w - s</b>."
+                        : "Inputs are processed in tiles. For each tile <b>w1</b> and local index <b>w0</b>, we keep <b>i[w]</b> local and sweep all filters <b>s</b>, updating valid outputs <b>o[q]</b> with <b>q = w - s</b>.";
 
                 const reuseByMode = mode === "standard"
-                    ? { input: 3, weight: 1, output: 4, label: "Reuse Distance (Standard)" }
-                    : mode === "tiled"
-                        ? { input: 2, weight: 1, output: 2, label: "Reuse Distance (Tiled)" }
-                        : { input: 2, weight: 2, output: 1, label: "Reuse Distance (Parallel WS)" };
+                    ? { input: 1, weight: 4, output: 5, label: "Reuse Distance (Standard)" }
+                    : { input: 1, weight: 4, output: 5, label: "Reuse Distance (Tiled)" };
                 reuseTitle.innerText = reuseByMode.label;
                 reuseInput.innerText = reuseByMode.input;
                 reuseWeight.innerText = reuseByMode.weight;
                 reuseOutput.innerText = reuseByMode.output;
-
-                totalSteps = getTotalSteps();
-                totalStepsText.innerText = totalSteps;
-
                 standardBtn.classList.toggle("active", mode === "standard");
                 tiledBtn.classList.toggle("active", mode === "tiled");
-                parallelBtn.classList.toggle("active", mode === "parallel");
-
-                resize();
+                draw();
             }
 
             function resize() {
                 const container = canvas.parentElement;
-                const targetHeight = mode === "parallel" ? 660 : 500;
                 canvas.width = container.clientWidth * window.devicePixelRatio;
-                canvas.height = targetHeight * window.devicePixelRatio;
+                canvas.height = 500 * window.devicePixelRatio;
                 canvas.style.width = container.clientWidth + "px";
-                canvas.style.height = targetHeight + "px";
+                canvas.style.height = "500px";
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
                 draw();
             }
 
             function getStepData(step) {
-                if (mode === "standard") {
-                    const s = Math.floor(step / Q);
-                    const q = step % Q;
-                    return {
-                        s,
-                        q,
-                        w: q + s,
-                        q1: 0,
-                        q0: 0
-                    };
-                } else if (mode === "tiled") {
-                    const q1 = Math.floor(step / (S * Q0));
-                    const subStep = step % (S * Q0);
-                    const s = Math.floor(subStep / Q0);
-                    const q0 = subStep % Q0;
-                    const q = q1 * Q0 + q0;
-                    return {
-                        q1,
-                        s,
-                        q0,
-                        q,
-                        w: q + s
-                    };
-                } else {
-                    const s1 = Math.floor(step / Q);
-                    const q = step % Q;
-                    const sA = s1 * S0;
-                    const sB = s1 * S0 + 1;
-                    return {
-                        s1,
-                        q,
-                        sA,
-                        sB,
-                        wA: q + sA,
-                        wB: q + sB,
-                    };
+                const steps = mode === "standard" ? standardSteps : tiledSteps;
+                const total = steps.length;
+                if (total === 0) {
+                    return { w: 0, s: 0, q: 0, valid: false };
                 }
+                const idx = ((step % total) + total) % total;
+                const base = steps[idx];
+                const w = base.w;
+                const s = base.s;
+                const q = w - s;
+                const valid = q >= outputMinQ && q <= outputMaxQ;
+                return { w, s, q, valid };
             }
 
-            function drawBox(
-                x,
-                y,
-                val,
-                label,
-                color,
-                isHighlighted,
-                isStationary = false,
-            ) {
+            function drawBox(x, y, val, label, color, isHighlighted, isStationary = false) {
                 ctx.save();
                 if (isHighlighted) {
                     ctx.shadowColor = color + "44";
-                    ctx.shadowBlur = 10;
-                    ctx.shadowOffsetY = 4;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowOffsetY = 2;
                 }
                 ctx.fillStyle = isHighlighted ? color + "15" : "#ffffff";
                 ctx.strokeStyle = isHighlighted ? color : "#e2e8f0";
@@ -472,21 +443,23 @@
                 ctx.fillText(val, x + boxSize / 2, y + boxSize / 2);
                 if (isStationary && isHighlighted) {
                     ctx.fillStyle = color;
-                    ctx.beginPath();
-                    ctx.arc(x + boxSize - 8, y + 8, 3.5, 0, Math.PI * 2);
-                    ctx.fill();
+                    ctx.font = "bold 9px sans-serif";
+                    ctx.fillText("🔒", x + boxSize - 12, y + boxSize - 12);
                 }
                 ctx.restore();
             }
 
-            function drawTimeline(currentStep) {
+            function drawTimeline(stepIdx, stepsCount) {
+                if (!stepsCount) return;
+
                 const canvasWidth = canvas.width / window.devicePixelRatio;
-                const timelineY = mode === "parallel" ? 400 : 356;
-                const data = getStepData(currentStep);
+                const timelineY = 350;
+                const data = getStepData(stepIdx);
 
                 const smallGap = 4;
                 const inputLen = inputArr.length;
                 const filterLen = filterArr.length;
+                const outputLen = outputQAxis.length;
                 const cellW = Math.max(
                     20,
                     Math.min(
@@ -509,7 +482,7 @@
                 ctx.lineTo(startX + inputRowW, timelineY);
                 ctx.stroke();
 
-                const progress = totalSteps > 1 ? currentStep / (totalSteps - 1) : 0;
+                const progress = stepsCount > 1 ? stepIdx / (stepsCount - 1) : 0;
                 const markerX = startX + progress * inputRowW;
                 ctx.strokeStyle = "#3b82f6";
                 ctx.lineWidth = 2;
@@ -552,52 +525,35 @@
                     ctx.fillText(text, x + cellW / 2, y + cellH / 2 + 0.5);
                 }
 
-                // Input row (blue) - highlight the 4 contributing indices for the current output q
+                // Input row (blue) - active input is w
                 for (let i = 0; i < inputLen; i++) {
                     const x = startX + i * (cellW + smallGap);
-                    const inWindow = mode === "parallel"
-                        ? (i === data.wA || i === data.wB)
-                        : (i >= data.q && i < data.q + filterLen);
-                    const isActiveInput = mode === "parallel"
-                        ? (i === data.wA || i === data.wB)
-                        : i === data.w;
-                    const isWindowStart = mode === "parallel" ? i === data.wA : i === data.q;
+                    const isActiveInput = i === data.w;
 
                     let fill = "#eff6ff";
-                    let stroke = inWindow ? "#60a5fa" : "#94a3b8";
+                    let stroke = "#94a3b8";
                     let textColor = "#334155";
                     let lineWidth = 1.5;
 
                     if (isActiveInput) {
-                        if (mode === "parallel" && i === data.wB) {
-                            fill = "#ddd6fe";
-                            stroke = "#7c3aed";
-                            textColor = "#5b21b6";
-                        } else {
-                            fill = "#bfdbfe";
-                            stroke = "#1d4ed8";
-                            textColor = "#1e3a8a";
-                        }
+                        fill = "#bfdbfe";
+                        stroke = "#1d4ed8";
+                        textColor = "#1e3a8a";
                         lineWidth = 2.5;
                     }
 
                     drawMiniCell(x, inputY, i, fill, stroke, textColor, lineWidth);
-
-                    if (isWindowStart) {
-                        ctx.fillStyle = "#dc2626";
-                        ctx.fillRect(x + 2, inputY + 2, 4, 4);
-                    }
                 }
 
-                // Filter row (green) - shifted so filter[0] aligns under the first contributing input
+                // Filter row (green) - shifted so active filter index s aligns under stationary input w
+                const filterStart = data.w - data.s; // equals q
                 for (let sIdx = 0; sIdx < filterLen; sIdx++) {
-                    const x = mode === "parallel"
-                        ? startX + sIdx * (cellW + smallGap)
-                        : startX + (data.q + sIdx) * (cellW + smallGap);
+                    const inputAlignedIdx = filterStart + sIdx;
+                    if (inputAlignedIdx < 0 || inputAlignedIdx >= inputLen) continue;
+
+                    const x = startX + inputAlignedIdx * (cellW + smallGap);
                     const isFilterStart = sIdx === 0;
-                    const isActiveWeight = mode === "parallel"
-                        ? (sIdx === data.sA || sIdx === data.sB)
-                        : sIdx === data.s;
+                    const isActiveWeight = sIdx === data.s;
 
                     let fill = "#dcfce7";
                     let stroke = "#86efac";
@@ -605,15 +561,9 @@
                     let lineWidth = 1.5;
 
                     if (isActiveWeight) {
-                        if (mode === "parallel" && sIdx === data.sB) {
-                            fill = "#d1fae5";
-                            stroke = "#0f766e";
-                            textColor = "#134e4a";
-                        } else {
-                            fill = "#bbf7d0";
-                            stroke = "#16a34a";
-                            textColor = "#14532d";
-                        }
+                        fill = "#bbf7d0";
+                        stroke = "#16a34a";
+                        textColor = "#14532d";
                         lineWidth = 2.5;
                     }
 
@@ -625,10 +575,11 @@
                     }
                 }
 
-                // Output row (red) - aligned with output indices q, active output matches top diagram
-                for (let oIdx = 0; oIdx < outputArr.length; oIdx++) {
-                    const x = startX + oIdx * (cellW + smallGap);
-                    const isActiveOutput = oIdx === data.q;
+                // Output row (red) - active output is q when valid
+                for (let qIdx = 0; qIdx < outputLen; qIdx++) {
+                    const x = startX + qIdx * (cellW + smallGap);
+                    const qVal = outputQAxis[qIdx];
+                    const isActiveOutput = data.valid && qVal === data.q;
 
                     let fill = "#fff1f2";
                     let stroke = "#fda4af";
@@ -642,7 +593,7 @@
                         lineWidth = 2.5;
                     }
 
-                    drawMiniCell(x, outputY, oIdx, fill, stroke, textColor, lineWidth);
+                    drawMiniCell(x, outputY, qVal, fill, stroke, textColor, lineWidth);
                 }
 
                 ctx.fillStyle = "#64748b";
@@ -656,13 +607,13 @@
                 ctx.restore();
             }
 
-            function drawLines(sIdx, qIdx, wIdx) {
+            function drawLines(outputSlotIdx, s, wIdx) {
                 const iX = 50 + wIdx * (boxSize + gap) + boxSize / 2;
-                const fX = 50 + sIdx * (boxSize + gap) + boxSize / 2;
-                const oX = 50 + qIdx * (boxSize + gap) + boxSize / 2;
+                const fX = 50 + s * (boxSize + gap) + boxSize / 2;
+                const oX = 50 + outputSlotIdx * (boxSize + gap) + boxSize / 2;
                 const iY = startY + boxSize;
-                const fY = startY + 100 + boxSize;
-                const oY = startY + 200;
+                const fY = filterRowY + boxSize;
+                const oY = outputRowY + boxSize;
                 ctx.save();
                 ctx.setLineDash([6, 4]);
                 ctx.lineWidth = 2;
@@ -686,82 +637,19 @@
                 ctx.restore();
             }
 
-            function drawParallelLines(sIdx, qIdx, wIdx, color) {
-                const iX = 50 + wIdx * (boxSize + gap) + boxSize / 2;
-                const fX = 50 + sIdx * (boxSize + gap) + boxSize / 2;
-                const oX = 50 + qIdx * (boxSize + gap) + boxSize / 2;
-                const iY = startY + boxSize;
-                const fY = startY + 100 + boxSize;
-                const oY = startY + 200;
-
-                ctx.save();
-                ctx.setLineDash([6, 4]);
-                ctx.lineWidth = 2;
-                ctx.lineCap = "round";
-                ctx.strokeStyle = color;
-
-                ctx.beginPath();
-                ctx.moveTo(iX, iY);
-                ctx.bezierCurveTo(iX, iY + 60, oX, oY - 60, oX, oY);
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.moveTo(fX, fY);
-                ctx.bezierCurveTo(fX, fY - 40, oX, oY + 40, oX, oY + boxSize);
-                ctx.stroke();
-                ctx.restore();
-            }
-
-            function drawParallelPanels(data) {
-                const canvasWidth = canvas.width / window.devicePixelRatio;
-                const y = 520;
-                const gapX = 30;
-                const panelW = (canvasWidth - 100 - gapX) / 2;
-                const panelH = 110;
-
-                function drawPanel(x, title, laneColor, sVal, wVal) {
-                    ctx.save();
-                    ctx.fillStyle = "#ffffff";
-                    ctx.strokeStyle = "#e2e8f0";
-                    ctx.lineWidth = 1.2;
-                    ctx.beginPath();
-                    ctx.roundRect(x, y, panelW, panelH, 12);
-                    ctx.fill();
-                    ctx.stroke();
-
-                    ctx.fillStyle = laneColor;
-                    ctx.font = "bold 12px sans-serif";
-                    ctx.textAlign = "left";
-                    ctx.fillText(title, x + 14, y + 20);
-
-                    ctx.fillStyle = "#334155";
-                    ctx.font = "bold 13px monospace";
-                    ctx.fillText(`s = ${sVal}`, x + 14, y + 44);
-                    ctx.fillText(`w = q + s = ${wVal}`, x + 14, y + 64);
-                    ctx.fillStyle = "#0f172a";
-                    ctx.fillText(`o[${data.q}] += i[${wVal}] * f[${sVal}]`, x + 14, y + 86);
-                    ctx.restore();
-                }
-
-                drawPanel(50, "Process A (s0 = 0)", "#2563eb", data.sA, data.wA);
-                drawPanel(50 + panelW + gapX, "Process B (s0 = 1)", "#7c3aed", data.sB, data.wB);
-            }
-
             function draw() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                const data = getStepData(currentStep);
+                totalSteps = totalStepsByMode[mode];
+                if (!totalSteps) return;
+                const stepIdx = ((currentStep % totalSteps) + totalSteps) % totalSteps;
+                const data = getStepData(stepIdx);
 
-                currentStepText.innerText = currentStep + 1;
-                indexDisplay.innerHTML =
-                    mode === "standard" ?
-                        `s:${data.s}, q:${data.q}` :
-                        mode === "tiled"
-                            ? `<span class="text-sm font-bold">q1:${data.q1}, s:${data.s}, q0:${data.q0}</span>`
-                            : `<span class="text-sm font-bold">s1:${data.s1}, q:${data.q} | sA:${data.sA}, sB:${data.sB}</span>`;
+                currentStepText.innerText = stepIdx + 1;
+                const qLabel = data.valid ? data.q : "&ndash;";
+                indexDisplay.innerHTML = `w:${data.w}, s:${data.s}, q:${qLabel}`;
 
-                const highlightLine = mode === "standard" ? 4 : 5;
-                const linesCount = mode === "parallel" ? 6 : 5;
-
+                const highlightLine = highlightLineMap[mode];
+                const linesCount = lineCountMap[mode];
                 for (let i = 1; i <= linesCount; i++) {
                     const el = document.getElementById("line-" + i);
                     if (el) el.classList.remove("highlight-line");
@@ -772,106 +660,92 @@
                 const statLabel = document.getElementById("statLabel");
                 if (statLabel) statLabel.style.display = "inline-block";
 
-                // 1. Input Activations
                 ctx.fillStyle = "#64748b";
                 ctx.font = "bold 11px sans-serif";
                 ctx.fillText("INPUT ACTIVATIONS i[W]", 50, startY - 30);
                 inputArr.forEach((val, idx) => {
-                    const isHighlighted = mode === "parallel"
-                        ? idx === data.wA || idx === data.wB
-                        : idx === data.w;
-                    const color = mode === "parallel" && idx === data.wB ? "#7c3aed" : "#10b981";
                     drawBox(
                         50 + idx * (boxSize + gap),
                         startY,
                         val,
-                        idx,
-                        color,
-                        isHighlighted,
+                        `i[${idx}]`,
+                        "#10b981",
+                        idx === data.w,
+                        idx === data.w
                     );
                 });
 
-                // 2. Filter Weights
                 ctx.fillStyle = "#64748b";
-                ctx.fillText("FILTER WEIGHTS f[S]", 50, startY + 70);
+                ctx.fillText("FILTER WEIGHTS f[S]", 50, filterRowY - 30);
                 filterArr.forEach((val, idx) => {
-                    const isHighlighted = mode === "parallel"
-                        ? idx === data.sA || idx === data.sB
-                        : idx === data.s;
-                    const color = mode === "parallel" && idx === data.sB ? "#0f766e" : "#f59e0b";
                     drawBox(
                         50 + idx * (boxSize + gap),
-                        startY + 100,
+                        filterRowY,
                         val,
-                        idx,
-                        color,
-                        isHighlighted,
-                        true,
+                        `f[${idx}]`,
+                        "#f59e0b",
+                        idx === data.s
                     );
                 });
 
-                // 3. Output Activations
                 ctx.fillStyle = "#64748b";
-                ctx.fillText("OUTPUT ACTIVATIONS o[Q]", 50, startY + 170);
-                outputArr.forEach((val, idx) => {
+                ctx.fillText("OUTPUT ACTIVATIONS o[Q]", 50, outputRowY - 30);
+                outputQAxis.forEach((qVal, idx) => {
                     drawBox(
                         50 + idx * (boxSize + gap),
-                        startY + 200,
-                        "o",
-                        idx,
+                        outputRowY,
+                        0,
+                        `o[${qVal}]`,
                         "#f43f5e",
-                        idx === data.q,
+                        data.valid && qVal === data.q,
+                        false
                     );
                 });
 
-                if (mode === "parallel") {
-                    drawParallelLines(data.sA, data.q, data.wA, "#2563eb66");
-                    drawParallelLines(data.sB, data.q, data.wB, "#7c3aed66");
-                    drawParallelPanels(data);
-                } else {
-                    drawLines(data.s, data.q, data.w);
+                if (data.valid) {
+                    drawLines(outputSlotByQ.get(data.q), data.s, data.w);
                 }
-                drawTimeline(currentStep);
 
-                const oX = 50 + data.q * (boxSize + gap);
+                drawTimeline(stepIdx, totalSteps);
+
+                const outputSlot = outputSlotByQ.get(data.q);
+                const oX = 50 + outputSlot * (boxSize + gap);
                 tooltip.style.left = oX + boxSize + 24 + "px";
                 tooltip.style.top = "-18px";
                 tooltip.style.opacity = "1";
                 tooltip.style.transform = "translateY(0)";
-                calcText.innerHTML = mode === "parallel"
-                    ? `<span class="text-rose-500">o</span>[${data.q}] += <span class="text-blue-600">i</span>[${data.wA}] * <span class="text-blue-600">f</span>[${data.sA}] &nbsp;+&nbsp; <span class="text-violet-600">i</span>[${data.wB}] * <span class="text-violet-600">f</span>[${data.sB}]`
-                    : `<span class="text-rose-500">o</span>[${data.q}] += <span class="text-emerald-500">i</span>[${data.w}] * <span class="text-amber-500">f</span>[${data.s}]`;
+                calcText.innerHTML = `<span class="text-rose-500">o</span>[${data.q}] += <span class="text-emerald-500">i</span>[${data.w}] * <span class="text-amber-500">f</span>[${data.s}]`;
             }
 
-            function update() {
+            function update(deltaTime) {
                 if (!isPlaying) return;
-                const now = Date.now();
-                const speed = (101 - speedRange.value) * 15;
-                if (now - lastTime > speed) {
+                const speed = parseFloat(speedRange.value) / 100;
+                lastTime += deltaTime * speed;
+                if (lastTime >= 800) {
+                    lastTime = 0;
                     nextStep();
-                    lastTime = now;
                 }
-                requestAnimationFrame(update);
             }
 
             function nextStep() {
+                totalSteps = totalStepsByMode[mode];
+                if (!totalSteps) return;
                 currentStep = (currentStep + 1) % totalSteps;
                 draw();
-                if (currentStep === 0 && isPlaying) togglePlay();
             }
 
             function prevStep() {
+                totalSteps = totalStepsByMode[mode];
+                if (!totalSteps) return;
                 currentStep = (currentStep - 1 + totalSteps) % totalSteps;
                 draw();
             }
 
             function togglePlay() {
                 isPlaying = !isPlaying;
-                playIcon.innerText = isPlaying ? "⏸" : "▶";
-                if (isPlaying) {
-                    lastTime = Date.now();
-                    update();
-                }
+                playIcon.innerHTML = isPlaying
+                    ? '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />'
+                    : '<path d="M8 5v14l11-7z" />';
             }
 
             speedRange.addEventListener("input", (e) => {
@@ -879,37 +753,36 @@
             });
 
             backBtn.addEventListener("click", () => {
-                if (isPlaying) togglePlay();
+                isPlaying = false;
+                playIcon.innerHTML = '<path d="M8 5v14l11-7z" />';
                 prevStep();
             });
 
             nextBtn.addEventListener("click", () => {
-                if (isPlaying) togglePlay();
+                isPlaying = false;
+                playIcon.innerHTML = '<path d="M8 5v14l11-7z" />';
                 nextStep();
             });
 
             playBtn.addEventListener("click", togglePlay);
 
             resetBtn.addEventListener("click", () => {
+                isPlaying = false;
+                playIcon.innerHTML = '<path d="M8 5v14l11-7z" />';
                 currentStep = 0;
-                if (isPlaying) togglePlay();
                 draw();
             });
 
             standardBtn.addEventListener("click", () => {
+                isPlaying = false;
                 mode = "standard";
                 currentStep = 0;
                 updateUI();
             });
 
             tiledBtn.addEventListener("click", () => {
+                isPlaying = false;
                 mode = "tiled";
-                currentStep = 0;
-                updateUI();
-            });
-
-            parallelBtn.addEventListener("click", () => {
-                mode = "parallel";
                 currentStep = 0;
                 updateUI();
             });
@@ -920,6 +793,16 @@
                 updateUI();
                 resize();
             }, 100);
+
+            let lastFrameTime = Date.now();
+            function animate() {
+                const now = Date.now();
+                const deltaTime = now - lastFrameTime;
+                lastFrameTime = now;
+                update(deltaTime);
+                requestAnimationFrame(animate);
+            }
+            animate();
         })();
     </script>
 </body>

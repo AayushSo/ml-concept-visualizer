@@ -76,8 +76,10 @@ Understanding the memory hierarchy
 
 Hardware dataflow patterns for accelerators
 
+- Input-stationary dataflow
+- Output-stationary dataflow
 - Weight-stationary dataflow
-- Systolic arrays concepts
+- Weight-stationary accelerator (8 PE parallel)
 
 ### 📈 Performance Modeling
 
@@ -116,6 +118,10 @@ ml-concept-visualizer/
 ├── kernel-optimization/                # Kernel-level optimizations
 ├── cache-optimization/                 # Memory hierarchy
 ├── dataflow-loop-nests/               # Hardware dataflow patterns
+│   ├── input-stationary-dataflow.html
+│   ├── output-stationary-dataflow.html
+│   ├── weight-stationary-dataflow.html
+│   └── weight-stationary-accelerator-8pe-parallel.html
 └── performance-modeling/              # Performance analysis
 ```
 
@@ -172,6 +178,10 @@ Contributions are welcome! To add a new visualization:
 - Keep code clean and well-commented
 - Test across different browsers
 - Ensure responsive design for mobile devices
+
+## 📚 References
+
+- Sze, V., Chen, Y.-H., Yang, T.-J., & Emer, J. S. (2020). *Efficient Processing of Deep Neural Networks: A Tutorial and Survey*. Morgan & Claypool.
 
 ## 📄 License
 
