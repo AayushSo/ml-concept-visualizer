@@ -57,6 +57,60 @@
     </header>
 
     <main class="max-w-7xl mx-auto p-6 md:p-12">
+        
+        <!-- AI Accelerators & CPU Architectures -->
+        <section class="mb-12">
+            <div class="category-card bg-white rounded-xl shadow-md p-8 border-l-4 border-purple-500">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center text-2xl">
+                        🚀
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">AI Accelerators & CPU Architectures</h2>
+                        <p class="text-gray-600 text-sm">Deep dive into hardware design for machine learning</p>
+                    </div>
+                </div>
+                <ul class="space-y-3">
+                    <li>
+                        <a href="tpu/vliw.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">CISC vs RISC vs VLIW</span>
+                            <span class="text-gray-600 text-sm block mt-1">Comparing CPU instruction architectures and parallelism philosophies</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="tpu/tpu1.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">TPU v1 Architecture</span>
+                            <span class="text-gray-600 text-sm block mt-1">Interactive block diagram of the Google Tensor Processing Unit</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gemm-optimization/systolic_array.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Systolic Array Core</span>
+                            <span class="text-gray-600 text-sm block mt-1">Visualize how data flows through a rhythmic matrix multiply unit</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="tpu/tpu1_instructions.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">TPU Programming Model</span>
+                            <span class="text-gray-600 text-sm block mt-1">Visualization of the CISC-like instruction set used to program AI accelerators</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="tpu/tpu-vector-unit.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Vector Unit Architecture</span>
+                            <span class="text-gray-600 text-sm block mt-1">On-chip vector processing for activation and pooling operations</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="tpu/pci.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">PCIe Interface Details</span>
+                            <span class="text-gray-600 text-sm block mt-1">How accelerators communicate with the host CPU at high bandwidth</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
         <!-- Classical ML & Classification -->
         <section class="mb-12">
             <div class="category-card bg-white rounded-xl shadow-md p-8">
@@ -165,6 +219,20 @@
                         </a>
                     </li>
                     <li>
+                        <a href="cnn-architectures/convolution-engine-stepper.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">3×3 Convolution Engine Stepper</span>
+                            <span class="text-gray-600 text-sm block mt-1">Step through each MAC operation with synced input, filter, and psum updates</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="cnn-architectures/neuFlow.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">3×3 2D Convolution Engine (neuFlow)</span>
+                            <span class="text-gray-600 text-sm block mt-1">Visualize PE broadcast, delay elements (W−K), and output map generation</span>
+                        </a>
+                    </li>
+                    <li>
                         <a href="cnn-architectures/pooling-visualizer.html"
                             class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">Pooling Operations</span>
@@ -255,6 +323,13 @@
                 </div>
                 <ul class="space-y-3">
                     <li>
+                        <a href="gemm-optimization/strassen.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-orange-600">Strassen's Matrix Multiplication</span>
+                            <span class="text-gray-600 text-sm block mt-1">Algorithm for O(n^2.81) matrix multiplication with recursive decomposition</span>
+                        </a>
+                    </li>
+                    <li>
                         <a href="gemm-optimization/gemm-nested-loops-baseline.html"
                             class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-orange-600">GEMM Nested Loops Baseline</span>
@@ -273,6 +348,13 @@
                             class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-orange-600">GEMM Tiling Visualizer</span>
                             <span class="text-gray-600 text-sm block mt-1">Interactive tiling strategy visualization</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gemm-optimization/img2col.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-orange-600">img2col Transformation</span>
+                            <span class="text-gray-600 text-sm block mt-1">Converting convolutions to GEMM for high-performance execution</span>
                         </a>
                     </li>
                     <li>
@@ -362,7 +444,7 @@
             </div>
         </section>
 
-        <!-- Dataflow & Architecture -->
+        <!-- Dataflow Patterns -->
         <section class="mb-12">
             <div class="category-card bg-white rounded-xl shadow-md p-8">
                 <div class="flex items-center gap-3 mb-6">
@@ -370,8 +452,8 @@
                         🔄
                     </div>
                     <div>
-                        <h2 class="text-2xl font-bold text-gray-900">Dataflow & Architecture</h2>
-                        <p class="text-gray-600 text-sm">Hardware dataflow patterns</p>
+                        <h2 class="text-2xl font-bold text-gray-900">Dataflow Patterns</h2>
+                        <p class="text-gray-600 text-sm">Hardware execution patterns for neural networks</p>
                     </div>
                 </div>
                 <ul class="space-y-3">
@@ -401,6 +483,13 @@
                             class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-teal-600">Weight-Stationary Accelerator (8 PE Parallel)</span>
                             <span class="text-gray-600 text-sm block mt-1">Step-by-step visualization of 8 processing elements working in parallel</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="dataflow-loop-nests/simplified-nvdla-convolution-dataflow.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-teal-600">Simplified NVDLA Convolution Dataflow</span>
+                            <span class="text-gray-600 text-sm block mt-1">Atomic-C parallel convolution walkthrough with receptive-field and output-cell tracking</span>
                         </a>
                     </li>
                 </ul>

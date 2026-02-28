@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The PCIe Interactive Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes pulse-slow {
+
+            0%,
+            100% {
+                opacity: 0.4;
+            }
+
+            50% {
+                opacity: 0.8;
+            }
+        }
+
+        .animate-pulse-slow {
+            animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .packet {
+            box-shadow: 0 0 10px rgba(96, 165, 250, 0.8);
+        }
+
+        .packet-tpu {
+            box-shadow: 0 0 15px rgba(52, 211, 153, 0.6);
+        }
+
+        .packet-gpu {
+            box-shadow: 0 0 15px rgba(129, 140, 248, 0.6);
+        }
+    </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 font-sans h-screen overflow-hidden flex flex-col">
+
+    <!-- Header -->
+    <header class="p-6 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md shrink-0">
+        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
+            The PCIe Interactive Explorer
+        </h1>
+        <p class="text-slate-400 text-sm mt-1">Understanding the high-speed backbone of modern computing</p>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar Navigation -->
+        <nav class="w-64 border-r border-slate-800 bg-slate-900/30 p-4 space-y-2 shrink-0">
+            <button onclick="switchTab('evolution')" id="btn-evolution"
+                class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all bg-blue-600 text-white shadow-lg">
+                <i data-lucide="rotate-ccw" class="w-[18px]"></i>
+                <span class="font-medium">PCI vs PCIe</span>
+            </button>
+            <button onclick="switchTab('lanes')" id="btn-lanes"
+                class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all hover:bg-slate-800 text-slate-400">
+                <i data-lucide="layers" class="w-[18px]"></i>
+                <span class="font-medium">How Lanes Work</span>
+            </button>
+            <button onclick="switchTab('gpu-tpu')" id="btn-gpu-tpu"
+                class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all hover:bg-slate-800 text-slate-400">
+                <i data-lucide="zap" class="w-[18px]"></i>
+                <span class="font-medium">GPUs & TPUs</span>
+            </button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 p-8 overflow-y-auto">
+
+            <!-- Evolution Tab -->
+            <div id="tab-evolution" class="tab-content active max-w-4xl space-y-8 animate-in fade-in duration-500">
+                <section>
+                    <h2 class="text-3xl font-bold mb-4">The Great Shift: Parallel to Serial</h2>
+                    <div class="grid md:grid-cols-2 gap-8">
+                        <div class="p-6 rounded-xl bg-slate-900 border border-slate-800">
+                            <div class="flex items-center gap-2 mb-4 text-orange-400">
+                                <i data-lucide="layout"></i>
+                                <h3 class="text-xl font-bold italic">Old School: PCI (Parallel)</h3>
+                            </div>
+                            <p class="text-slate-400 mb-6 leading-relaxed">
+                                Imagine a wide bridge where all cars travel at once. If one car breaks down, everyone
+                                waits. Devices <strong>shared</strong> the same bandwidth.
+                            </p>
+                            <div
+                                class="relative h-20 bg-slate-800 rounded-lg overflow-hidden flex items-center justify-around">
+                                <div class="w-2 h-10 bg-orange-500/40 rounded-full animate-pulse-slow"></div>
+                                <div class="w-2 h-10 bg-orange-500/40 rounded-full animate-pulse-slow"
+                                    style="animation-delay: 0.2s"></div>
+                                <div class="w-2 h-10 bg-orange-500/40 rounded-full animate-pulse-slow"
+                                    style="animation-delay: 0.4s"></div>
+                                <div class="w-2 h-10 bg-orange-500/40 rounded-full animate-pulse-slow"
+                                    style="animation-delay: 0.6s"></div>
+                                <div
+                                    class="z-10 absolute inset-0 flex items-center justify-center text-[10px] font-mono text-orange-200">
+                                    SHARED BUS (32/64 bits)</div>
+                            </div>
+                        </div>
+
+                        <div class="p-6 rounded-xl bg-slate-900 border border-blue-500/30">
+                            <div class="flex items-center gap-2 mb-4 text-blue-400">
+                                <i data-lucide="zap"></i>
+                                <h3 class="text-xl font-bold italic">Modern: PCIe (Serial)</h3>
+                            </div>
+                            <p class="text-slate-400 mb-6 leading-relaxed">
+                                PCIe gives every device its own <strong>dedicated tunnel</strong>. No sharing, no
+                                traffic jams, just pure point-to-point speed.
+                            </p>
+                            <div
+                                class="relative h-20 bg-slate-800 rounded-lg overflow-hidden flex flex-col justify-center gap-2 px-4">
+                                <div class="h-2 w-full bg-slate-700 rounded-full relative overflow-hidden">
+                                    <div id="evolution-p1"
+                                        class="absolute h-full bg-blue-400 rounded-full w-[20px] packet"></div>
+                                </div>
+                                <div class="h-2 w-full bg-slate-700 rounded-full relative overflow-hidden">
+                                    <div id="evolution-p2"
+                                        class="absolute h-full bg-blue-400 rounded-full w-[20px] packet"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <div class="bg-blue-900/20 border border-blue-800/50 p-6 rounded-xl">
+                    <h4 class="font-bold text-blue-300 mb-2">Why is Serial better?</h4>
+                    <p class="text-sm text-slate-300">
+                        Parallel interfaces struggled with "clock skew"—signals on different wires arriving at slightly
+                        different times.
+                        PCIe sends data one bit after another at insane frequencies, using multiple
+                        <strong>lanes</strong> to scale.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Lanes Tab -->
+            <div id="tab-lanes" class="tab-content max-w-4xl space-y-8 animate-in fade-in duration-500">
+                <div class="flex justify-between items-end">
+                    <div>
+                        <h2 class="text-3xl font-bold">Lane Visualization</h2>
+                        <p class="text-slate-400">Configure your "highway" and watch the data flow.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="togglePlay()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700">
+                            <i id="play-icon" data-lucide="pause"></i>
+                        </button>
+                        <button onclick="resetAnimation()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700">
+                            <i data-lucide="rotate-ccw"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="p-4 bg-slate-900 rounded-xl border border-slate-800">
+                        <label class="text-xs uppercase font-bold text-slate-500 block mb-3">Lane Configuration</label>
+                        <div class="flex gap-2">
+                            <button onclick="setLaneCount(1)"
+                                class="lane-config-btn flex-1 py-2 rounded-md font-mono bg-blue-600 text-white"
+                                data-val="1">x1</button>
+                            <button onclick="setLaneCount(4)"
+                                class="lane-config-btn flex-1 py-2 rounded-md font-mono bg-slate-800 text-slate-400"
+                                data-val="4">x4</button>
+                            <button onclick="setLaneCount(8)"
+                                class="lane-config-btn flex-1 py-2 rounded-md font-mono bg-slate-800 text-slate-400"
+                                data-val="8">x8</button>
+                            <button onclick="setLaneCount(16)"
+                                class="lane-config-btn flex-1 py-2 rounded-md font-mono bg-slate-800 text-slate-400"
+                                data-val="16">x16</button>
+                        </div>
+                    </div>
+                    <div class="p-4 bg-slate-900 rounded-xl border border-slate-800">
+                        <label class="text-xs uppercase font-bold text-slate-500 block mb-3">PCIe Generation</label>
+                        <div class="flex gap-2">
+                            <button onclick="setGen(3)"
+                                class="gen-config-btn flex-1 py-2 rounded-md font-mono bg-slate-800 text-slate-400"
+                                data-val="3">3.0</button>
+                            <button onclick="setGen(4)"
+                                class="gen-config-btn flex-1 py-2 rounded-md font-mono bg-emerald-600 text-white"
+                                data-val="4">4.0</button>
+                            <button onclick="setGen(5)"
+                                class="gen-config-btn flex-1 py-2 rounded-md font-mono bg-slate-800 text-slate-400"
+                                data-val="5">5.0</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    class="relative p-12 bg-slate-900 rounded-2xl border-2 border-slate-800 flex items-center justify-between overflow-hidden">
+                    <div
+                        class="z-10 flex flex-col items-center gap-2 p-4 bg-slate-800 rounded-xl border border-slate-700 shadow-2xl">
+                        <i data-lucide="cpu" class="text-blue-400 w-10 h-10"></i>
+                        <span class="text-xs font-bold uppercase tracking-widest">CPU / Root</span>
+                    </div>
+
+                    <div class="flex-1 mx-8 relative" id="lanes-container">
+                        <!-- Lanes generated via JS -->
+                    </div>
+
+                    <div
+                        class="z-10 flex flex-col items-center gap-2 p-4 bg-slate-800 rounded-xl border border-slate-700 shadow-2xl">
+                        <i data-lucide="database" class="text-emerald-400 w-10 h-10"></i>
+                        <span class="text-xs font-bold uppercase tracking-widest">Component</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="p-4 rounded-lg bg-slate-900 border border-slate-800 text-center">
+                        <div id="stat-lanes" class="text-2xl font-bold text-blue-400">x1</div>
+                        <div class="text-xs text-slate-500 uppercase">Physical Width</div>
+                    </div>
+                    <div class="p-4 rounded-lg bg-slate-900 border border-slate-800 text-center">
+                        <div id="stat-gen" class="text-2xl font-bold text-emerald-400">Gen 4.0</div>
+                        <div class="text-xs text-slate-500 uppercase">Version Speed</div>
+                    </div>
+                    <div class="p-4 rounded-lg bg-slate-900 border border-slate-800 text-center">
+                        <div id="stat-throughput" class="text-2xl font-bold text-white">2x</div>
+                        <div class="text-xs text-slate-500 uppercase">Relative Throughput</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPU/TPU Tab -->
+            <div id="tab-gpu-tpu" class="tab-content max-w-4xl space-y-6 animate-in fade-in duration-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h2 class="text-3xl font-bold">Hardware Workloads</h2>
+                        <p class="text-slate-400">Select a mode to see how data moves across the PCIe bus.</p>
+                    </div>
+                    <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
+                        <button onclick="setWorkload('gaming')" id="btn-workload-gaming"
+                            class="workload-btn flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white shadow-lg">
+                            <i data-lucide="gamepad-2" class="w-[18px]"></i> Gaming
+                        </button>
+                        <button onclick="setWorkload('ai')" id="btn-workload-ai"
+                            class="workload-btn flex items-center gap-2 px-4 py-2 rounded-lg text-slate-500 hover:text-slate-300">
+                            <i data-lucide="brain" class="w-[18px]"></i> AI Training
+                        </button>
+                    </div>
+                </div>
+
+                <div
+                    class="relative min-h-[400px] bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden p-8 flex flex-col">
+                    <div class="flex justify-between items-center mb-12">
+                        <div class="flex flex-col items-center gap-3">
+                            <div
+                                class="w-16 h-16 bg-slate-800 rounded-2xl border-2 border-blue-500/50 flex items-center justify-center shadow-lg">
+                                <i data-lucide="cpu" class="text-blue-400 w-8 h-8"></i>
+                            </div>
+                            <span class="text-xs font-mono font-bold text-blue-400">SYSTEM CPU / RAM</span>
+                        </div>
+
+                        <div class="flex-1 relative mx-4 h-1 px-4">
+                            <div class="absolute inset-0 bg-slate-800 rounded-full h-2"></div>
+                            <div id="workload-packets" class="absolute inset-0">
+                                <!-- Packets generated via JS -->
+                            </div>
+                            <div
+                                class="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] uppercase font-bold tracking-widest text-slate-500 whitespace-nowrap">
+                                PCIe Gen 4.0 x16
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center gap-3">
+                            <div id="device-box"
+                                class="w-20 h-24 rounded-xl border-2 flex items-center justify-center shadow-lg transition-colors bg-indigo-950/40 border-indigo-500">
+                                <i id="device-icon" data-lucide="maximize" class="text-indigo-400 w-10 h-10"></i>
+                            </div>
+                            <span id="device-label" class="text-xs font-mono font-bold text-indigo-400">GPU
+                                (Graphics)</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-auto grid grid-cols-2 gap-4">
+                        <div class="p-4 bg-slate-950/50 rounded-xl border border-slate-800">
+                            <h4 class="text-sm font-bold flex items-center gap-2 mb-2">
+                                <i data-lucide="info" class="text-blue-400 w-[14px]"></i>
+                                <span id="demand-title">Gaming Demand</span>
+                            </h4>
+                            <p id="demand-text" class="text-xs text-slate-400 leading-relaxed">
+                                GPU pulls textures and models from RAM. High burst traffic during loading or scene
+                                changes.
+                            </p>
+                        </div>
+                        <div
+                            class="p-4 bg-slate-950/50 rounded-xl border border-slate-800 flex flex-col justify-center">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-[10px] uppercase text-slate-500 font-bold">Bus Saturation</span>
+                                <span id="saturation-val"
+                                    class="text-xs font-mono font-bold text-emerald-400">35%</span>
+                            </div>
+                            <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                <div id="saturation-bar"
+                                    class="h-full transition-all duration-500 bg-emerald-500 w-[35%]"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="p-5 rounded-xl bg-slate-900 border border-slate-800">
+                        <h3 class="text-lg font-bold text-indigo-300 mb-2">The GPU Game Plan</h3>
+                        <p class="text-sm text-slate-400">
+                            Modern games use **DirectStorage**. Instead of the CPU "unpacking" data, the GPU pulls
+                            compressed data directly via PCIe.
+                        </p>
+                    </div>
+                    <div class="p-5 rounded-xl bg-slate-900 border border-slate-800">
+                        <h3 class="text-lg font-bold text-emerald-300 mb-2">The TPU Bottleneck</h3>
+                        <p class="text-sm text-slate-400">
+                            In AI training, PCIe is often the link. If it can't keep up with math speed, the chip sits
+                            idle—wasting thousands.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer
+        class="p-4 border-t border-slate-800 bg-slate-950 text-[10px] text-slate-500 flex justify-between uppercase tracking-widest shrink-0">
+        <span>© 2024 Computer Architecture Interactive</span>
+        <div class="flex gap-4">
+            <span class="flex items-center gap-1">
+                <div class="w-2 h-2 rounded-full bg-blue-500"></div> Serial (PCIe)
+            </span>
+            <span class="flex items-center gap-1">
+                <div class="w-2 h-2 rounded-full bg-orange-500"></div> Parallel (Legacy PCI)
+            </span>
+        </div>
+    </footer>
+
+    <script>
+        // State
+        let activeTab = 'evolution';
+        let isPlaying = true;
+        let laneCount = 1;
+        let gen = 4;
+        let animationStep = 0;
+        let workload = 'gaming';
+
+        const generations = {
+            3: { speed: 1, label: 'Gen 3.0' },
+            4: { speed: 2, label: 'Gen 4.0' },
+            5: { speed: 4, label: 'Gen 5.0' },
+        };
+
+        // Initialize Lucide
+        lucide.createIcons();
+
+        // Functions
+        function switchTab(id) {
+            activeTab = id;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${id}`).classList.add('active');
+
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('bg-blue-600', 'text-white', 'shadow-lg');
+                el.classList.add('hover:bg-slate-800', 'text-slate-400');
+            });
+            const activeBtn = document.getElementById(`btn-${id}`);
+            activeBtn.classList.add('bg-blue-600', 'text-white', 'shadow-lg');
+            activeBtn.classList.remove('hover:bg-slate-800', 'text-slate-400');
+
+            if (id === 'lanes') renderLanes();
+            if (id === 'gpu-tpu') renderWorkloadPackets();
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            const icon = document.getElementById('play-icon');
+            icon.setAttribute('data-lucide', isPlaying ? 'pause' : 'play');
+            lucide.createIcons();
+        }
+
+        function resetAnimation() {
+            animationStep = 0;
+            isPlaying = false;
+            const icon = document.getElementById('play-icon');
+            icon.setAttribute('data-lucide', 'play');
+            lucide.createIcons();
+        }
+
+        function setLaneCount(n) {
+            laneCount = n;
+            document.querySelectorAll('.lane-config-btn').forEach(btn => {
+                const val = parseInt(btn.getAttribute('data-val'));
+                if (val === n) {
+                    btn.classList.add('bg-blue-600', 'text-white');
+                    btn.classList.remove('bg-slate-800', 'text-slate-400');
+                } else {
+                    btn.classList.remove('bg-blue-600', 'text-white');
+                    btn.classList.add('bg-slate-800', 'text-slate-400');
+                }
+            });
+            renderLanes();
+            updateStats();
+        }
+
+        function setGen(v) {
+            gen = v;
+            document.querySelectorAll('.gen-config-btn').forEach(btn => {
+                const val = parseInt(btn.getAttribute('data-val'));
+                if (val === v) {
+                    btn.classList.add('bg-emerald-600', 'text-white');
+                    btn.classList.remove('bg-slate-800', 'text-slate-400');
+                } else {
+                    btn.classList.remove('bg-emerald-600', 'text-white');
+                    btn.classList.add('bg-slate-800', 'text-slate-400');
+                }
+            });
+            updateStats();
+        }
+
+        function updateStats() {
+            document.getElementById('stat-lanes').innerText = `x${laneCount}`;
+            document.getElementById('stat-gen').innerText = generations[gen].label;
+            const rel = generations[gen].speed * laneCount;
+            document.getElementById('stat-throughput').innerText = `${rel}x`;
+        }
+
+        function renderLanes() {
+            const container = document.getElementById('lanes-container');
+            container.innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex flex-col gap-1 w-full';
+            for (let i = 0; i < laneCount; i++) {
+                const lane = document.createElement('div');
+                lane.className = 'h-3 w-full bg-slate-950/50 rounded-full relative overflow-hidden lane-track';
+                for (let j = 0; j < 4; j++) {
+                    const packet = document.createElement('div');
+                    packet.className = 'absolute h-full bg-gradient-to-r from-transparent via-blue-400 to-transparent packet-anim';
+                    packet.style.width = '40px';
+                    packet.style.left = `${j * 25}%`;
+                    lane.appendChild(packet);
+                }
+                wrapper.appendChild(lane);
+            }
+            container.appendChild(wrapper);
+        }
+
+        function setWorkload(w) {
+            workload = w;
+            document.querySelectorAll('.workload-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'bg-emerald-600', 'text-white', 'shadow-lg');
+                btn.classList.add('text-slate-500');
+            });
+            const activeBtn = document.getElementById(`btn-workload-${w}`);
+            activeBtn.classList.add(w === 'gaming' ? 'bg-indigo-600' : 'bg-emerald-600', 'text-white', 'shadow-lg');
+
+            // Update Device Box
+            const deviceBox = document.getElementById('device-box');
+            const deviceIcon = document.getElementById('device-icon');
+            const deviceLabel = document.getElementById('device-label');
+
+            if (w === 'gaming') {
+                deviceBox.className = 'w-20 h-24 rounded-xl border-2 flex items-center justify-center shadow-lg transition-colors bg-indigo-950/40 border-indigo-500';
+                deviceIcon.setAttribute('data-lucide', 'maximize');
+                deviceIcon.className = 'text-indigo-400 w-10 h-10';
+                deviceLabel.innerText = 'GPU (Graphics)';
+                deviceLabel.className = 'text-xs font-mono font-bold text-indigo-400';
+                document.getElementById('demand-title').innerText = 'Gaming Demand';
+                document.getElementById('demand-text').innerText = 'GPU pulls textures and models from RAM. High burst traffic during loading.';
+                document.getElementById('saturation-val').innerText = '35%';
+                document.getElementById('saturation-val').className = 'text-xs font-mono font-bold text-emerald-400';
+                document.getElementById('saturation-bar').style.width = '35%';
+                document.getElementById('saturation-bar').className = 'h-full transition-all duration-500 bg-emerald-500';
+            } else {
+                deviceBox.className = 'w-20 h-24 rounded-xl border-2 flex items-center justify-center shadow-lg transition-colors bg-emerald-950/40 border-emerald-500';
+                deviceIcon.setAttribute('data-lucide', 'zap');
+                deviceIcon.className = 'text-emerald-400 w-10 h-10';
+                deviceLabel.innerText = 'TPU / AI ACCEL';
+                deviceLabel.className = 'text-xs font-mono font-bold text-emerald-400';
+                document.getElementById('demand-title').innerText = 'AI Training Demand';
+                document.getElementById('demand-text').innerText = 'Continuous bi-directional flow. Gradients and weights move back and forth constantly.';
+                document.getElementById('saturation-val').innerText = '92%';
+                document.getElementById('saturation-val').className = 'text-xs font-mono font-bold text-red-400';
+                document.getElementById('saturation-bar').style.width = '92%';
+                document.getElementById('saturation-bar').className = 'h-full transition-all duration-500 bg-red-500';
+            }
+            lucide.createIcons();
+            renderWorkloadPackets();
+        }
+
+        function renderWorkloadPackets() {
+            const container = document.getElementById('workload-packets');
+            container.innerHTML = '';
+            const count = workload === 'gaming' ? 5 : 10;
+            for (let i = 0; i < count; i++) {
+                const p = document.createElement('div');
+                p.className = `absolute h-3 w-8 rounded-full blur-[2px] packet-workload-fwd ${workload === 'gaming' ? 'bg-indigo-400 packet-gpu' : 'bg-emerald-400 packet-tpu'}`;
+                p.style.top = '-2px';
+                p.style.setProperty('--offset', i * (100 / count));
+                container.appendChild(p);
+            }
+            if (workload === 'ai') {
+                for (let i = 0; i < 5; i++) {
+                    const p = document.createElement('div');
+                    p.className = `absolute h-3 w-8 rounded-full blur-[2px] packet-workload-rev bg-emerald-600 packet-tpu`;
+                    p.style.top = '-2px';
+                    p.style.setProperty('--offset', i * 20);
+                    container.appendChild(p);
+                }
+            }
+        }
+
+        // Animation Loop
+        function animate() {
+            if (isPlaying) {
+                animationStep = (animationStep + 1) % 100;
+
+                // Evolution Tab
+                const p1 = document.getElementById('evolution-p1');
+                const p2 = document.getElementById('evolution-p2');
+                if (p1) p1.style.left = `${animationStep % 100}%`;
+                if (p2) p2.style.left = `${(animationStep + 33) % 100}%`;
+
+                // Lanes Tab
+                const laneSpeed = generations[gen].speed / 2;
+                document.querySelectorAll('.packet-anim').forEach((p, idx) => {
+                    const baseOffset = (idx % 4) * 25;
+                    p.style.left = `${(animationStep * laneSpeed + baseOffset) % 100}%`;
+                });
+
+                // Workload Tab
+                const speed = workload === 'gaming' ? 1 : 1.5;
+                document.querySelectorAll('.packet-workload-fwd').forEach((p, idx) => {
+                    const offset = parseFloat(p.style.getPropertyValue('--offset'));
+                    p.style.left = `${(animationStep * speed + offset) % 100}%`;
+                });
+                document.querySelectorAll('.packet-workload-rev').forEach((p, idx) => {
+                    const offset = parseFloat(p.style.getPropertyValue('--offset'));
+                    p.style.right = `${(animationStep * speed + offset) % 100}%`;
+                });
+            }
+            requestAnimationFrame(animate);
+        }
+
+        // Init
+        renderLanes();
+        animate();
+    </script>
+</body>
+
+</html>

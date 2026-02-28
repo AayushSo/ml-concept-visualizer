@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3×3 Convolution Engine Stepper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .cell {
+            width: 52px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            transition: all 0.22s ease;
+            user-select: none;
+        }
+
+        .cell.dim {
+            opacity: 0.45;
+        }
+
+        .cell.window {
+            border-color: #3b82f6;
+            box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.25);
+        }
+
+        .cell.active {
+            background: #fef08a;
+            border-color: #f59e0b;
+            transform: scale(1.06);
+        }
+
+        .cell.input-active {
+            background: #fee2e2;
+            border-color: #dc2626;
+            transform: scale(1.06);
+        }
+
+        .cell.done {
+            background: #d1fae5;
+            border-color: #059669;
+        }
+
+        .mac {
+            border: 1px solid #cbd5e1;
+            border-radius: 0.6rem;
+            padding: 0.5rem;
+            min-height: 68px;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .mac.active {
+            background: #fffbeb;
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .mac.done {
+            background: #ecfdf5;
+            border-color: #10b981;
+        }
+
+        .pulse {
+            animation: pulse 0.45s ease;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(0.95);
+                opacity: 0.75;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .flow-node {
+            fill: #f8fafc;
+            stroke: #94a3b8;
+            stroke-width: 2;
+            transition: all 0.2s ease;
+        }
+
+        .flow-node.done {
+            fill: #dcfce7;
+            stroke: #10b981;
+        }
+
+        .flow-node.active {
+            fill: #fef3c7;
+            stroke: #f59e0b;
+        }
+
+        .flow-text {
+            font-size: 13px;
+            font-weight: 700;
+            fill: #0f172a;
+            text-anchor: middle;
+            dominant-baseline: middle;
+        }
+
+        .flow-small {
+            font-size: 11px;
+            font-weight: 600;
+            fill: #334155;
+        }
+
+        .flow-line {
+            stroke: #94a3b8;
+            stroke-width: 2.2;
+            fill: none;
+            marker-end: url(#arrow);
+        }
+
+        .flow-line.active {
+            stroke: #f59e0b;
+            stroke-width: 3;
+        }
+
+        .flow-line.done {
+            stroke: #10b981;
+        }
+
+        .delay-box {
+            fill: #f1f5f9;
+            stroke: #94a3b8;
+            stroke-width: 1.5;
+            rx: 4;
+        }
+
+        .delay-box.active {
+            fill: #fef3c7;
+            stroke: #f59e0b;
+        }
+
+        .tag-box {
+            fill: #ffffff;
+            stroke: #64748b;
+            stroke-width: 1;
+            rx: 4;
+        }
+
+        .tag-box.active {
+            fill: #dbeafe;
+            stroke: #2563eb;
+            stroke-width: 1.8;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+    <div class="max-w-[1500px] mx-auto p-4 md:p-8 space-y-6">
+        <header class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <h1 class="text-3xl font-bold">3×3 Convolution Engine — Step by Step</h1>
+            <p class="text-slate-600 mt-2 max-w-4xl">
+                Step through each multiply-accumulate operation and see how <strong>activations</strong>,
+                <strong>weights</strong>, and <strong>partial sums (psum)</strong> produce one output value.
+                Then the window slides to the next output position.
+            </p>
+        </header>
+
+        <section class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+            <!-- Left Main Column (Controls + Engine + Dataflow) -->
+            <div class="xl:col-span-8 space-y-6">
+                <!-- Controls + Engine Row -->
+                <div class="grid grid-cols-1 2xl:grid-cols-5 gap-6 items-start">
+                    <div class="2xl:col-span-2 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+                        <h2 class="text-lg font-semibold">Controls</h2>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <button id="prev-btn" class="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 font-semibold">◀ Prev</button>
+                            <button id="next-btn" class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-semibold">Next ▶</button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <button id="play-btn" class="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-semibold">Play</button>
+                            <button id="reset-btn" class="px-3 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800 font-semibold">Reset</button>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <label for="speed" class="font-medium">Animation speed</label>
+                                <span id="speed-label" class="text-slate-500">550 ms</span>
+                            </div>
+                            <input id="speed" type="range" min="180" max="1300" step="10" value="550" class="w-full" />
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                            <div>
+                                <label class="text-sm font-medium">Sample input</label>
+                                <select id="input-preset" class="w-full mt-1 border border-slate-300 rounded-md p-2">
+                                    <option value="verticalEdge">Vertical Edge</option>
+                                    <option value="cross">Cross Pattern</option>
+                                    <option value="centerSpot">Center Spot</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium">Sample filter (3×3)</label>
+                                <select id="kernel-preset" class="w-full mt-1 border border-slate-300 rounded-md p-2">
+                                    <option value="edgeVertical">Vertical Edge</option>
+                                    <option value="edgeHorizontal">Horizontal Edge</option>
+                                    <option value="sharpen">Sharpen</option>
+                                    <option value="blur">Blur</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Engine View -->
+                    <div class="2xl:col-span-3 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                        <h2 class="text-lg font-semibold mb-3">Engine View</h2>
+                        <div id="step-meta" class="text-sm leading-6 text-slate-600 mb-2"></div>
+                        <div id="engine-grid" class="grid grid-cols-1 gap-3"></div>
+                        <div id="equation" class="font-mono text-sm bg-slate-50 rounded-lg p-2 mt-3 border border-slate-200"></div>
+                        <div id="psum-line" class="font-mono text-sm bg-slate-50 rounded-lg p-2 mt-2 border border-slate-200"></div>
+                        <div class="mt-4 flex items-center gap-3 text-sm">
+                            <span class="inline-flex items-center gap-1"><span class="w-4 h-4 rounded bg-amber-100 border border-amber-400"></span>active</span>
+                            <span class="inline-flex items-center gap-1"><span class="w-4 h-4 rounded bg-emerald-100 border border-emerald-400"></span>done</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hardware Dataflow - Full Width -->
+                <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                    <h2 class="text-lg font-semibold mb-2">Hardware Dataflow (Synced)</h2>
+                    <svg id="flow-svg" viewBox="0 0 900 520" class="w-full h-auto block">
+                                <defs>
+                                    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                                        <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"></path>
+                                    </marker>
+                                </defs>
+
+                                <g id="tags"></g>
+                                <g id="flow-nodes"></g>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Right Column (Grids) -->
+            <div class="xl:col-span-4 space-y-6">
+                <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm sticky top-6">
+                    <h2 class="text-lg font-semibold mb-4">Input Activations, Weights, and Output</h2>
+                    <!-- Stack grids vertically since this column is narrower -->
+                    <div class="flex flex-col gap-8 items-center">
+                        <div>
+                            <div class="text-sm font-semibold text-blue-700 mb-2">Input activations (5×5)</div>
+                            <div id="input-grid" class="grid grid-cols-5 gap-1 w-max"></div>
+                        </div>
+                        <div>
+                            <div class="text-sm font-semibold text-emerald-700 mb-2">Filter weights (3×3)</div>
+                            <div id="kernel-grid" class="grid grid-cols-3 gap-1 w-max"></div>
+                        </div>
+                        <div>
+                            <div class="text-sm font-semibold text-purple-700 mb-2">Output feature map (3×3)</div>
+                            <div id="output-grid" class="grid grid-cols-3 gap-1 w-max"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const inputSize = 5;
+        const kernelSize = 3;
+        const outputSize = inputSize - kernelSize + 1;
+        const phaseCount = kernelSize * kernelSize + 1; // 9 MAC + 1 write-back
+
+        const inputPresets = {
+            verticalEdge: [
+                [0, 0, 255, 255, 255],
+                [0, 0, 255, 255, 255],
+                [0, 0, 255, 255, 255],
+                [0, 0, 255, 255, 255],
+                [0, 0, 255, 255, 255],
+            ],
+            cross: [
+                [0, 0, 220, 0, 0],
+                [0, 0, 220, 0, 0],
+                [220, 220, 220, 220, 220],
+                [0, 0, 220, 0, 0],
+                [0, 0, 220, 0, 0],
+            ],
+            centerSpot: [
+                [10, 20, 35, 20, 10],
+                [20, 60, 80, 60, 20],
+                [35, 80, 255, 80, 35],
+                [20, 60, 80, 60, 20],
+                [10, 20, 35, 20, 10],
+            ]
+        };
+
+        const kernelPresets = {
+            edgeVertical: [
+                [-1, 0, 1],
+                [-1, 0, 1],
+                [-1, 0, 1],
+            ],
+            edgeHorizontal: [
+                [1, 1, 1],
+                [0, 0, 0],
+                [-1, -1, -1],
+            ],
+            sharpen: [
+                [0, -1, 0],
+                [-1, 5, -1],
+                [0, -1, 0],
+            ],
+            blur: [
+                [0.11, 0.11, 0.11],
+                [0.11, 0.11, 0.11],
+                [0.11, 0.11, 0.11],
+            ]
+        };
+
+        let inputData = clone2D(inputPresets.verticalEdge);
+        let kernel = clone2D(kernelPresets.edgeVertical);
+        let output = make2D(outputSize, outputSize, null);
+
+        let step = -1;
+        let timer = null;
+        let speedMs = 550;
+
+        const totalSteps = outputSize * outputSize * phaseCount;
+
+        function clone2D(arr) {
+            return arr.map((row) => [...row]);
+        }
+
+        function make2D(h, w, value) {
+            return Array.from({ length: h }, () => Array.from({ length: w }, () => value));
+        }
+
+        function fmt(n) {
+            if (Number.isInteger(n)) return String(n);
+            return Number(n).toFixed(2).replace(/\.00$/, "");
+        }
+
+        function computeStepInfo(s) {
+            if (s < 0) return null;
+            const outputIndex = Math.floor(s / phaseCount);
+            const phase = s % phaseCount;
+            const outY = Math.floor(outputIndex / outputSize);
+            const outX = outputIndex % outputSize;
+
+            if (phase < kernelSize * kernelSize) {
+                const ky = Math.floor(phase / kernelSize);
+                const kx = phase % kernelSize;
+                const inY = outY + ky;
+                const inX = outX + kx;
+                return {
+                    outputIndex,
+                    phase,
+                    outX,
+                    outY,
+                    ky,
+                    kx,
+                    inX,
+                    inY,
+                    writing: false,
+                };
+            }
+
+            return {
+                outputIndex,
+                phase,
+                outX,
+                outY,
+                writing: true,
+            };
+        }
+
+        function partialSumAt(outY, outX, phaseInclusive) {
+            let sum = 0;
+            const maxPhase = Math.min(phaseInclusive, kernelSize * kernelSize - 1);
+            for (let i = 0; i <= maxPhase; i++) {
+                const ky = Math.floor(i / kernelSize);
+                const kx = i % kernelSize;
+                const a = inputData[outY + ky][outX + kx];
+                const w = kernel[ky][kx];
+                sum += a * w;
+            }
+            return sum;
+        }
+
+        function fullConvAt(outY, outX) {
+            return partialSumAt(outY, outX, kernelSize * kernelSize - 1);
+        }
+
+        function resetOutputByStep() {
+            output = make2D(outputSize, outputSize, null);
+            if (step < 0) return;
+
+            for (let s = 0; s <= step; s++) {
+                const info = computeStepInfo(s);
+                if (info.writing) {
+                    output[info.outY][info.outX] = fullConvAt(info.outY, info.outX);
+                }
+            }
+        }
+
+        function getInputCellClass(x, y, info) {
+            let cls = "cell";
+            if (!info) return cls;
+
+            const inWindow = x >= info.outX && x < info.outX + kernelSize && y >= info.outY && y < info.outY + kernelSize;
+            if (!inWindow) cls += " dim";
+            if (inWindow) cls += " window";
+            if (!info.writing && x === info.inX && y === info.inY) cls += " input-active pulse";
+            return cls;
+        }
+
+        function getKernelCellClass(kx, ky, info) {
+            let cls = "cell";
+            if (!info) return cls;
+            if (!info.writing && kx === info.kx && ky === info.ky) cls += " active pulse";
+            else if (!info.writing && ky * kernelSize + kx <= info.phase) cls += " done";
+            return cls;
+        }
+
+        function getOutputCellClass(ox, oy, info) {
+            let cls = "cell";
+            if (!info) return cls;
+            if (ox === info.outX && oy === info.outY && info.writing) cls += " active pulse";
+            else if (output[oy][ox] !== null) cls += " done";
+            return cls;
+        }
+
+        function renderGrids() {
+            const info = computeStepInfo(step);
+            const inputGrid = document.getElementById("input-grid");
+            const kernelGrid = document.getElementById("kernel-grid");
+            const outputGrid = document.getElementById("output-grid");
+
+            inputGrid.innerHTML = "";
+            for (let y = 0; y < inputSize; y++) {
+                for (let x = 0; x < inputSize; x++) {
+                    const div = document.createElement("div");
+                    div.className = getInputCellClass(x, y, info);
+                    div.textContent = fmt(inputData[y][x]);
+                    inputGrid.appendChild(div);
+                }
+            }
+
+            kernelGrid.innerHTML = "";
+            for (let y = 0; y < kernelSize; y++) {
+                for (let x = 0; x < kernelSize; x++) {
+                    const div = document.createElement("div");
+                    div.className = getKernelCellClass(x, y, info);
+                    div.textContent = fmt(kernel[y][x]);
+                    kernelGrid.appendChild(div);
+                }
+            }
+
+            outputGrid.innerHTML = "";
+            for (let y = 0; y < outputSize; y++) {
+                for (let x = 0; x < outputSize; x++) {
+                    const div = document.createElement("div");
+                    div.className = getOutputCellClass(x, y, info);
+                    div.textContent = output[y][x] === null ? "·" : fmt(output[y][x]);
+                    outputGrid.appendChild(div);
+                }
+            }
+        }
+
+        function renderEngine() {
+            const info = computeStepInfo(step);
+            const container = document.getElementById("engine-grid");
+            container.innerHTML = "";
+
+            for (let row = 0; row < kernelSize; row++) {
+                const rowBox = document.createElement("div");
+                rowBox.className = "bg-slate-50 rounded-xl border border-slate-200 p-3";
+
+                const rowTitle = document.createElement("div");
+                rowTitle.className = "text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide";
+                rowTitle.textContent = `Row ${row + 1}`;
+                rowBox.appendChild(rowTitle);
+
+                const macRow = document.createElement("div");
+                macRow.className = "grid grid-cols-3 gap-2";
+
+                for (let col = 0; col < kernelSize; col++) {
+                    const idx = row * kernelSize + col;
+                    const isDone = info && !info.writing && idx < info.phase;
+                    const isActive = info && !info.writing && idx === info.phase;
+
+                    const outX = info ? info.outX : 0;
+                    const outY = info ? info.outY : 0;
+                    const a = inputData[outY + row]?.[outX + col] ?? 0;
+                    const w = kernel[row][col];
+                    const p = a * w;
+
+                    const mac = document.createElement("div");
+                    mac.className = `mac ${isDone ? "done" : ""} ${isActive ? "active pulse" : ""}`;
+                    mac.innerHTML = `
+                        <div class="text-[11px] text-slate-500">activation × weight</div>
+                        <div class="font-mono text-sm mt-1">${fmt(a)} × ${fmt(w)}</div>
+                        <div class="font-mono text-xs mt-1 text-slate-700">= ${fmt(p)}</div>
+                    `;
+
+                    macRow.appendChild(mac);
+                }
+
+                rowBox.appendChild(macRow);
+                container.appendChild(rowBox);
+            }
+        }
+
+        function renderTextPanels() {
+            const info = computeStepInfo(step);
+            const meta = document.getElementById("step-meta");
+            const equation = document.getElementById("equation");
+            const psumLine = document.getElementById("psum-line");
+
+            if (!info) {
+                meta.innerHTML = "Ready. Press <strong>Next</strong> to start from output (0,0).";
+                equation.textContent = "Equation: —";
+                psumLine.textContent = "psum: 0";
+                return;
+            }
+
+            const outHuman = `(${info.outY}, ${info.outX})`;
+            const outputNum = info.outputIndex + 1;
+            const totalOutputs = outputSize * outputSize;
+
+            if (!info.writing) {
+                const a = inputData[info.inY][info.inX];
+                const w = kernel[info.ky][info.kx];
+                const product = a * w;
+                const psum = partialSumAt(info.outY, info.outX, info.phase);
+                meta.innerHTML = `Output cell <strong>${outputNum}/${totalOutputs}</strong> at <strong>${outHuman}</strong><br/>MAC <strong>${info.phase + 1}/9</strong> using input (${info.inY}, ${info.inX}) and weight (${info.ky}, ${info.kx})`;
+                equation.textContent = `a=${fmt(a)} × w=${fmt(w)} = ${fmt(product)}`;
+                psumLine.textContent = `psum after MAC ${info.phase + 1}: ${fmt(psum)}`;
+            } else {
+                const finalVal = fullConvAt(info.outY, info.outX);
+                meta.innerHTML = `Output cell <strong>${outputNum}/${totalOutputs}</strong> at <strong>${outHuman}</strong><br/>Write-back step: store psum to output`;
+                equation.textContent = `write output[${info.outY}][${info.outX}] = ${fmt(finalVal)}`;
+                psumLine.textContent = `final psum: ${fmt(finalVal)}`;
+            }
+        }
+
+        function initFlowDiagram() {
+            const tags = document.getElementById("tags");
+            const nodes = document.getElementById("flow-nodes");
+            tags.innerHTML = "";
+            nodes.innerHTML = "";
+
+            // Layout constants matching the reference image structure
+            // 3 Rows corresponding to the 3 rows of the kernel
+            const rowY = [100, 240, 380];
+            const colX = [180, 420, 660]; // Positions for W00, W01, W02 columns
+            const adderOffset = 60; // Distance below multiplier for the adder line
+
+            // Create specific "Input data: x" label at top
+            const inputLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            inputLabel.setAttribute("x", "50");
+            inputLabel.setAttribute("y", "80");
+            inputLabel.setAttribute("class", "flow-small");
+            inputLabel.textContent = "Input Stream";
+            nodes.appendChild(inputLabel);
+
+            // Draw the structure matrix
+            for (let r = 0; r < kernelSize; r++) {
+                const y = rowY[r];
+
+                // Draw connecting lines between rows if needed (the snake pattern in image)
+                // In the image, data flows from line m -> line m+1 through delays
+                // We'll simulate the visual structure:
+
+                for (let c = 0; c < kernelSize; c++) {
+                    const x = colX[c];
+                    const idx = r * kernelSize + c;
+
+                    // 1. Multiplier Node (X)
+                    const mul = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    mul.setAttribute("id", `mul-${idx}`);
+                    mul.setAttribute("cx", String(x));
+                    mul.setAttribute("cy", String(y));
+                    mul.setAttribute("r", "18");
+                    mul.setAttribute("class", "flow-node");
+                    nodes.appendChild(mul);
+
+                    const mulText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    mulText.setAttribute("x", String(x));
+                    mulText.setAttribute("y", String(y));
+                    mulText.setAttribute("class", "flow-text");
+                    mulText.textContent = "×";
+                    nodes.appendChild(mulText);
+
+                    // Weight box (green in image) to the left of multiplier
+                    const wRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    wRect.setAttribute("id", `w-tag-${idx}`);
+                    wRect.setAttribute("x", String(x - 60));
+                    wRect.setAttribute("y", String(y - 12));
+                    wRect.setAttribute("width", "24");
+                    wRect.setAttribute("height", "24");
+                    wRect.setAttribute("class", "tag-box");
+                    tags.appendChild(wRect);
+
+                    const wText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    wText.setAttribute("id", `w-text-${idx}`);
+                    wText.setAttribute("x", String(x - 48));
+                    wText.setAttribute("y", String(y + 5));
+                    wText.setAttribute("class", "flow-small");
+                    wText.setAttribute("text-anchor", "middle");
+                    wText.textContent = `W${r}${c}`;
+                    tags.appendChild(wText);
+
+                    // Line from Weight to Mul
+                    const lineW = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    lineW.setAttribute("class", "flow-line");
+                    lineW.setAttribute("id", `feed-w-${idx}`);
+                    lineW.setAttribute("x1", String(x - 36));
+                    lineW.setAttribute("y1", String(y));
+                    lineW.setAttribute("x2", String(x - 18));
+                    lineW.setAttribute("y2", String(y));
+                    nodes.appendChild(lineW);
+
+                    // Input activation line coming from top (or previous row)
+                    const lineA = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    lineA.setAttribute("class", "flow-line");
+                    lineA.setAttribute("id", `feed-a-${idx}`);
+                    lineA.setAttribute("x1", String(x));
+                    lineA.setAttribute("y1", String(y - 40));
+                    lineA.setAttribute("x2", String(x));
+                    lineA.setAttribute("y2", String(y - 18));
+                    nodes.appendChild(lineA);
+
+                    // 2. Adder Node (+) below multiplier
+                    const adderY = y + adderOffset;
+                    const adder = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    adder.setAttribute("cx", String(x));
+                    adder.setAttribute("cy", String(adderY));
+                    adder.setAttribute("r", "16");
+                    adder.setAttribute("class", "flow-node");
+                    // We can reuse the active highlighting logic if we ID these
+                    adder.setAttribute("id", `add-${idx}`);
+                    nodes.appendChild(adder);
+
+                    const addText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    addText.setAttribute("x", String(x));
+                    addText.setAttribute("y", String(adderY));
+                    addText.setAttribute("class", "flow-text");
+                    addText.textContent = "+";
+                    nodes.appendChild(addText);
+
+                    // Line from Mul to Adder
+                    const lineProd = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    lineProd.setAttribute("class", "flow-line");
+                    lineProd.setAttribute("id", `prod-${idx}`);
+                    lineProd.setAttribute("x1", String(x));
+                    lineProd.setAttribute("y1", String(y + 18));
+                    lineProd.setAttribute("x2", String(x));
+                    lineProd.setAttribute("y2", String(adderY - 16));
+                    nodes.appendChild(lineProd);
+
+                    // 3. Horizontal connections (Delay chain)
+                    if (c > 0) {
+                        // Delay box between adders
+                        const midX = (colX[c - 1] + colX[c]) / 2;
+                        const delayRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                        delayRect.setAttribute("x", String(midX - 15));
+                        delayRect.setAttribute("y", String(adderY - 15));
+                        delayRect.setAttribute("width", "30");
+                        delayRect.setAttribute("height", "30");
+                        delayRect.setAttribute("class", "delay-box");
+                        nodes.appendChild(delayRect);
+
+                        const delayText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        delayText.setAttribute("x", String(midX));
+                        delayText.setAttribute("y", String(adderY));
+                        delayText.setAttribute("class", "flow-small");
+                        delayText.setAttribute("text-anchor", "middle");
+                        delayText.setAttribute("dominant-baseline", "middle");
+                        delayText.textContent = "Δ"; // Delta symbol for delay
+                        nodes.appendChild(delayText);
+
+                        // Line from prev Adder to Delay
+                        const lineToDelay = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        lineToDelay.setAttribute("class", "flow-line");
+                        lineToDelay.setAttribute("x1", String(colX[c - 1] + 16));
+                        lineToDelay.setAttribute("y1", String(adderY));
+                        lineToDelay.setAttribute("x2", String(midX - 15));
+                        lineToDelay.setAttribute("y2", String(adderY));
+                        nodes.appendChild(lineToDelay);
+
+                        // Line from Delay to current Adder
+                        const lineFromDelay = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        lineFromDelay.setAttribute("class", "flow-line");
+                        lineFromDelay.setAttribute("x1", String(midX + 15));
+                        lineFromDelay.setAttribute("y1", String(adderY));
+                        lineFromDelay.setAttribute("x2", String(x - 16));
+                        lineFromDelay.setAttribute("y2", String(adderY));
+                        nodes.appendChild(lineFromDelay);
+                    } else {
+                        // Start of row (0) input
+                        const lineStart = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        lineStart.setAttribute("class", "flow-line");
+                        lineStart.setAttribute("x1", String(x - 40));
+                        lineStart.setAttribute("y1", String(adderY));
+                        lineStart.setAttribute("x2", String(x - 16));
+                        lineStart.setAttribute("y2", String(adderY));
+                        nodes.appendChild(lineStart);
+                    }
+                }
+
+                // [W-K] Delays at end of row, connecting to next row
+                if (r < kernelSize - 1) {
+                    const endX = colX[kernelSize - 1] + 16;
+                    const endY = rowY[r] + adderOffset;
+
+                    // Draw a path snaking down to next row's start
+                    // We assume a simplified "Link" visualization
+                    const nextStartY = rowY[r + 1] + adderOffset;
+                    const nextStartX = colX[0] - 40;
+
+                    const linkPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    linkPath.setAttribute("d", `M ${endX} ${endY} L ${endX + 30} ${endY} L ${endX + 30} ${endY + 50} L ${nextStartX - 30} ${endY + 50} L ${nextStartX - 30} ${nextStartY} L ${nextStartX} ${nextStartY}`);
+                    linkPath.setAttribute("class", "flow-line");
+                    linkPath.setAttribute("fill", "none");
+                    linkPath.setAttribute("stroke-dasharray", "4"); // Dashed to indicate long delay line buffer
+                    nodes.appendChild(linkPath);
+                }
+            }
+
+            // Final Output SUM
+            const lastRowY = rowY[kernelSize - 1] + adderOffset;
+            const lastColX = colX[kernelSize - 1] + 16;
+
+            const finalOutLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            finalOutLine.setAttribute("class", "flow-line");
+            finalOutLine.setAttribute("id", "to-output");
+            finalOutLine.setAttribute("x1", String(lastColX));
+            finalOutLine.setAttribute("y1", String(lastRowY));
+            finalOutLine.setAttribute("x2", String(lastColX + 40));
+            finalOutLine.setAttribute("y2", String(lastRowY));
+            nodes.appendChild(finalOutLine);
+
+            const outRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            outRect.setAttribute("id", "output-box");
+            outRect.setAttribute("x", String(lastColX + 40));
+            outRect.setAttribute("y", String(lastRowY - 20));
+            outRect.setAttribute("width", "80");
+            outRect.setAttribute("height", "40");
+            outRect.setAttribute("class", "tag-box");
+            outRect.setAttribute("rx", "6");
+            tags.appendChild(outRect);
+
+            const outText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            outText.setAttribute("x", String(lastColX + 80));
+            outText.setAttribute("y", String(lastRowY));
+            outText.setAttribute("class", "flow-small");
+            outText.setAttribute("text-anchor", "middle");
+            outText.setAttribute("dominant-baseline", "middle");
+            outText.textContent = "PSUM OUT";
+            tags.appendChild(outText);
+        }
+
+        function setClassById(id, classValue) {
+            const el = document.getElementById(id);
+            if (el) el.setAttribute("class", classValue);
+        }
+
+        function renderFlowDiagram() {
+            const info = computeStepInfo(step);
+
+            // Reset all active states
+            const allActive = document.querySelectorAll(".active");
+            allActive.forEach(el => el.classList.remove("active"));
+
+            // Re-apply basic classes just in case
+            for (let i = 0; i < 9; i++) {
+                setClassById(`mul-${i}`, "flow-node");
+                setClassById(`add-${i}`, "flow-node");
+                setClassById(`feed-a-${i}`, "flow-line");
+                setClassById(`feed-w-${i}`, "flow-line");
+                setClassById(`prod-${i}`, "flow-line");
+                setClassById(`w-tag-${i}`, "tag-box");
+            }
+            setClassById("output-box", "tag-box");
+            setClassById("to-output", "flow-line");
+
+
+            if (!info) return;
+
+            if (!info.writing) {
+                // Highlight the specific MAC operation currently happening
+                const activeIdx = info.ky * kernelSize + info.kx;
+
+                // Highlight the multiplier components
+                setClassById(`mul-${activeIdx}`, "flow-node active");
+                setClassById(`feed-a-${activeIdx}`, "flow-line active");
+                setClassById(`feed-w-${activeIdx}`, "flow-line active");
+                setClassById(`prod-${activeIdx}`, "flow-line active");
+                setClassById(`w-tag-${activeIdx}`, "tag-box active");
+
+                // Also highlight the adder below it as it "consumes" the product
+                setClassById(`add-${activeIdx}`, "flow-node active");
+
+            } else {
+                // Writing phase: highlight the output path
+                setClassById("output-box", "tag-box active");
+                setClassById("to-output", "flow-line active");
+            }
+        }
+
+        function render() {
+            resetOutputByStep();
+            renderGrids();
+            renderEngine();
+            renderFlowDiagram();
+            renderTextPanels();
+            updateControls();
+        }
+
+        function nextStep() {
+            if (step >= totalSteps - 1) {
+                stopAutoPlay();
+                return;
+            }
+            step += 1;
+            render();
+        }
+
+        function prevStep() {
+            if (step <= -1) return;
+            step -= 1;
+            render();
+        }
+
+        function resetAll() {
+            step = -1;
+            render();
+        }
+
+        function startAutoPlay() {
+            if (timer) return;
+            timer = setInterval(() => {
+                if (step >= totalSteps - 1) {
+                    stopAutoPlay();
+                } else {
+                    nextStep();
+                }
+            }, speedMs);
+            updateControls();
+        }
+
+        function stopAutoPlay() {
+            if (!timer) return;
+            clearInterval(timer);
+            timer = null;
+            updateControls();
+        }
+
+        function togglePlay() {
+            if (timer) stopAutoPlay();
+            else startAutoPlay();
+        }
+
+        function updateControls() {
+            document.getElementById("prev-btn").disabled = step <= -1;
+            document.getElementById("next-btn").disabled = step >= totalSteps - 1;
+            document.getElementById("play-btn").textContent = timer ? "Pause" : "Play";
+            document.getElementById("play-btn").className = timer
+                ? "px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 font-semibold"
+                : "px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-semibold";
+        }
+
+        function applyPreset(type, key) {
+            if (type === "input") {
+                inputData = clone2D(inputPresets[key]);
+            } else {
+                kernel = clone2D(kernelPresets[key]);
+            }
+            stopAutoPlay();
+            resetAll();
+        }
+
+        function bindEvents() {
+            document.getElementById("next-btn").addEventListener("click", nextStep);
+            document.getElementById("prev-btn").addEventListener("click", prevStep);
+            document.getElementById("play-btn").addEventListener("click", togglePlay);
+            document.getElementById("reset-btn").addEventListener("click", () => {
+                stopAutoPlay();
+                resetAll();
+            });
+
+            document.getElementById("speed").addEventListener("input", (e) => {
+                speedMs = Number(e.target.value);
+                document.getElementById("speed-label").textContent = `${speedMs} ms`;
+                if (timer) {
+                    stopAutoPlay();
+                    startAutoPlay();
+                }
+            });
+
+            document.getElementById("input-preset").addEventListener("change", (e) => {
+                applyPreset("input", e.target.value);
+            });
+
+            document.getElementById("kernel-preset").addEventListener("change", (e) => {
+                applyPreset("kernel", e.target.value);
+            });
+        }
+
+        initFlowDiagram();
+        bindEvents();
+        render();
+    </script>
+</body>
+
+</html>

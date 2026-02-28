@@ -1,0 +1,662 @@
+<!doctype html>
+<!-- Brief: Visualization of dataflow through a simplified NVDLA-style convolution accelerator. -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simplified NVDLA Convolution Dataflow Visualizer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style type="text/tailwindcss">
+    @import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap");
+
+    body {
+      background-color: #f8fafc;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .code-font {
+      font-family: "Fira Code", monospace;
+    }
+
+    .btn-control {
+      @apply flex items-center justify-center rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+    }
+
+    .btn-nav {
+      @apply w-10 h-10 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200;
+    }
+
+    .btn-play {
+      @apply w-12 h-12 bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200;
+    }
+
+    .btn-action {
+      @apply px-4 h-10 bg-white text-slate-500 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 text-xs font-bold uppercase tracking-wider;
+    }
+  </style>
+</head>
+
+<body class="p-4 md:p-8">
+  <div class="max-w-7xl mx-auto space-y-6">
+    <header class="text-center">
+      <h1 class="text-3xl font-bold text-slate-800 mb-2">Simplified NVDLA Accelerator – Convolution Dataflow</h1>
+      <div id="subtitle" class="text-lg text-blue-700 font-serif italic">Tracking one MAC slice through channels and output tiles</div>
+    </header>
+
+    <!-- Main two-column layout: accelerator canvas + explanatory side panel -->
+    <div class="grid grid-cols-1 xl:grid-cols-[1fr_572px] gap-6">
+      <div class="bg-white py-4 px-2 md:py-6 md:px-3 rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+        <canvas id="mainCanvas" class="w-full h-auto"></canvas>
+        <div class="mt-4 pt-3 border-t border-slate-100">
+          <h3 class="font-bold text-slate-400 text-[10px] uppercase tracking-[0.2em] mb-5 text-center">Execution Controller</h3>
+
+          <div class="flex flex-col items-center gap-4">
+            <div class="flex items-center gap-3">
+              <button id="backBtn" class="btn-control btn-nav" title="Previous Step">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>
+
+              <button id="playBtn" class="btn-control btn-play" title="Play / Pause">
+                <span id="playIcon" class="text-xl ml-0.5">▶</span>
+              </button>
+
+              <button id="nextBtn" class="btn-control btn-nav" title="Next Step">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+            </div>
+
+            <button id="resetBtn" class="btn-control btn-action">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              Reset Sequence
+            </button>
+
+            <div class="text-xs text-slate-500">One step = one <span class="code-font">(r,s,p,q)</span> update with all channels and all 8 filters in parallel</div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+        <div>
+          <h2 class="text-sm font-bold tracking-wider text-slate-500 uppercase mb-2">Current Loop Indices</h2>
+          <div id="indexInfo" class="grid grid-cols-2 gap-2 text-sm"></div>
+        </div>
+
+        <div>
+          <h2 class="text-sm font-bold tracking-wider text-slate-500 uppercase mb-2">Current Operation</h2>
+          <div id="equation" class="code-font text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-700"></div>
+        </div>
+
+        <div>
+          <h2 class="text-sm font-bold tracking-wider text-slate-500 uppercase mb-2">Loop Nest</h2>
+          <pre id="loopCode" class="code-font text-[13px] leading-5 bg-slate-900 text-slate-100 rounded-lg p-3 whitespace-pre-wrap break-words overflow-x-hidden overflow-y-auto"></pre>
+        </div>
+
+        <div>
+          <h2 class="text-sm font-bold tracking-wider text-slate-500 uppercase mb-2">Convolution Window, Active Kernel Element, and Output</h2>
+          <canvas id="rfCanvas" class="w-full h-auto border border-slate-200 rounded-lg bg-slate-50"></canvas>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById("mainCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const backBtn = document.getElementById("backBtn");
+      const playBtn = document.getElementById("playBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const playIcon = document.getElementById("playIcon");
+      const subtitle = document.getElementById("subtitle");
+      const indexInfo = document.getElementById("indexInfo");
+      const equation = document.getElementById("equation");
+      const loopCode = document.getElementById("loopCode");
+      const rfCanvas = document.getElementById("rfCanvas");
+      const rfCtx = rfCanvas.getContext("2d");
+
+      // Problem dimensions used by the visualization.
+      const M = 8;
+      const C = 3;
+      const R = 2;
+      const S = 2;
+      const P = 2;
+      const Q = 2;
+
+      // One step advances (r,s,p,q); channels are consumed in parallel each step.
+      const TOTAL_STEPS = R * S * P * Q;
+
+      // Animation/playback state.
+      let step = 0;
+      let isPlaying = false;
+      let lastTime = 0;
+
+      let drawScale = 1;
+      let drawOffsetX = 0;
+      let drawOffsetY = 8;
+
+      // Logical canvas design size used for responsive scaling.
+      const DESIGN_WIDTH = 1120;
+      const DESIGN_HEIGHT = 760;
+      const RF_DESIGN_HEIGHT = 320;
+
+      function roundedRect(x, y, w, h, r = 6) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+      }
+
+      // Decode linear step id into loop indices (r,s,p,q).
+      function decodeStep(n) {
+        let t = n;
+        const q = t % Q;
+        t = Math.floor(t / Q);
+        const p = t % P;
+        t = Math.floor(t / P);
+        const s = t % S;
+        t = Math.floor(t / S);
+        const r = t % R;
+        return { r, s, p, q };
+      }
+
+      // Build synthetic accumulation progress for O[m,p,q] to visualize psum growth.
+      function buildAccum(untilStep) {
+        const accum = Array.from({ length: M }, () =>
+          Array.from({ length: P }, () => Array.from({ length: Q }, () => 0))
+        );
+
+        for (let k = 0; k < untilStep; k++) {
+          const { p, q } = decodeStep(k);
+          for (let m = 0; m < M; m++) {
+            accum[m][p][q] += C;
+          }
+        }
+
+        return accum;
+      }
+
+      // Generic arrow helper for architecture flow lines.
+      function drawArrow(x1, y1, x2, y2, color, width = 4, headLen = 10) {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Right-panel mini diagram: receptive field + active kernel element + output cell.
+      function drawReceptiveField(indices) {
+        const { r, s, p, q } = indices;
+        const inH = P + R - 1; // 3
+        const inW = Q + S - 1; // 3
+
+        rfCtx.clearRect(0, 0, rfCanvas.clientWidth, rfCanvas.clientHeight);
+
+        const cell = 28;
+        const channelGap = 20;
+        const leftPad = 12;
+        const topPad = 38;
+
+        rfCtx.fillStyle = "#0f172a";
+        rfCtx.font = "600 12px sans-serif";
+        rfCtx.textAlign = "left";
+        rfCtx.textBaseline = "alphabetic";
+        rfCtx.fillText(`Current output: O[m,${p},${q}]  •  Current kernel tap: (r=${r}, s=${s})`, 12, 18);
+
+        for (let c = 0; c < C; c++) {
+          const gx = leftPad + c * (inW * cell + channelGap);
+          const gy = topPad;
+
+          rfCtx.fillStyle = "#334155";
+          rfCtx.font = "bold 12px sans-serif";
+          rfCtx.fillText(`c=${c}`, gx, gy - 8);
+
+          // receptive field window border
+          rfCtx.strokeStyle = "#60a5fa";
+          rfCtx.lineWidth = 2;
+          rfCtx.strokeRect(gx + q * cell - 2, gy + p * cell - 2, S * cell + 4, R * cell + 4);
+
+          for (let y = 0; y < inH; y++) {
+            for (let x = 0; x < inW; x++) {
+              const isInWindow = y >= p && y < p + R && x >= q && x < q + S;
+              const isTap = y === p + r && x === q + s;
+
+              rfCtx.fillStyle = isTap ? "#fecaca" : isInWindow ? "#dbeafe" : "#f1f5f9";
+              rfCtx.strokeStyle = isTap ? "#dc2626" : "#94a3b8";
+              rfCtx.lineWidth = isTap ? 2.2 : 1;
+              rfCtx.fillRect(gx + x * cell, gy + y * cell, cell, cell);
+              rfCtx.strokeRect(gx + x * cell, gy + y * cell, cell, cell);
+
+              rfCtx.fillStyle = "#0f172a";
+              rfCtx.font = "bold 10px monospace";
+              rfCtx.textAlign = "center";
+              rfCtx.textBaseline = "middle";
+              rfCtx.fillText(`I${c}${y}${x}`, gx + x * cell + cell / 2, gy + y * cell + cell / 2 + 0.5);
+            }
+          }
+        }
+
+        // Filter kernel view with active tap
+        const kx = leftPad + C * (inW * cell + channelGap) + 14;
+        const ky = topPad + 4;
+        const kCell = 32;
+
+        rfCtx.fillStyle = "#334155";
+        rfCtx.font = "bold 12px sans-serif";
+        rfCtx.textAlign = "left";
+        rfCtx.textBaseline = "alphabetic";
+        rfCtx.fillText("Active kernel element", kx, ky - 20);
+        rfCtx.fillText("(same r,s for each channel)", kx, ky - 6);
+
+        for (let kr = 0; kr < R; kr++) {
+          for (let ks = 0; ks < S; ks++) {
+            const isActiveTap = kr === r && ks === s;
+            const x = kx + ks * kCell;
+            const y = ky + kr * kCell;
+
+            rfCtx.fillStyle = isActiveTap ? "#fecaca" : "#dcfce7";
+            rfCtx.strokeStyle = isActiveTap ? "#dc2626" : "#22c55e";
+            rfCtx.lineWidth = isActiveTap ? 2.2 : 1.2;
+            rfCtx.fillRect(x, y, kCell, kCell);
+            rfCtx.strokeRect(x, y, kCell, kCell);
+
+            rfCtx.fillStyle = "#14532d";
+            rfCtx.font = "bold 10px monospace";
+            rfCtx.textAlign = "center";
+            rfCtx.textBaseline = "middle";
+            rfCtx.fillText(`(${kr},${ks})`, x + kCell / 2, y + kCell / 2 + 0.5);
+          }
+        }
+
+        // Output feature map diagram
+        const outX = kx;
+        const outY = ky + R * kCell + 44;
+        const outCell = 34;
+
+        rfCtx.fillStyle = "#334155";
+        rfCtx.font = "bold 12px sans-serif";
+        rfCtx.textAlign = "left";
+        rfCtx.textBaseline = "alphabetic";
+        rfCtx.fillText("Output feature map", outX, outY - 22);
+        rfCtx.fillText("(current cell being accumulated)", outX, outY - 8);
+
+        for (let oy = 0; oy < P; oy++) {
+          for (let ox = 0; ox < Q; ox++) {
+            const isCurrent = oy === p && ox === q;
+            const x = outX + ox * outCell;
+            const y = outY + oy * outCell;
+
+            rfCtx.fillStyle = isCurrent ? "#fecaca" : "#ffe4e6";
+            rfCtx.strokeStyle = isCurrent ? "#dc2626" : "#e11d48";
+            rfCtx.lineWidth = isCurrent ? 2.2 : 1.2;
+            rfCtx.fillRect(x, y, outCell, outCell);
+            rfCtx.strokeRect(x, y, outCell, outCell);
+
+            rfCtx.fillStyle = "#881337";
+            rfCtx.font = "bold 10px monospace";
+            rfCtx.textAlign = "center";
+            rfCtx.textBaseline = "middle";
+            rfCtx.fillText(`O${oy}${ox}`, x + outCell / 2, y + outCell / 2 + 0.5);
+          }
+        }
+
+        rfCtx.fillStyle = "#475569";
+        rfCtx.font = "11px sans-serif";
+        rfCtx.textAlign = "left";
+        rfCtx.textBaseline = "alphabetic";
+        rfCtx.fillText("Blue box: 2×2 receptive field for current (p,q)", 12, RF_DESIGN_HEIGHT - 42);
+        rfCtx.fillText("Red cell in input: active multiplication tap used this step", 12, RF_DESIGN_HEIGHT - 26);
+        rfCtx.fillText("Red cell in output: O[p,q] receiving accumulation this step", 12, RF_DESIGN_HEIGHT - 10);
+      }
+
+      // Keep the mini diagram crisp on HiDPI screens.
+      function resizeRfCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = rfCanvas.parentElement.clientWidth;
+        const cssHeight = RF_DESIGN_HEIGHT;
+
+        rfCanvas.width = Math.floor(cssWidth * dpr);
+        rfCanvas.height = Math.floor(cssHeight * dpr);
+        rfCanvas.style.width = cssWidth + "px";
+        rfCanvas.style.height = cssHeight + "px";
+
+        rfCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      // Main architecture diagram (left canvas).
+      function drawArchitecture(indices, accum) {
+        const { r, s, p, q } = indices;
+
+        const leftX = 64;
+        const panelW = 180;
+        const panelRight = leftX + panelW;
+        const rowStartY = 130;
+        const rowGap = 120;
+        const peW = 78;
+        const peH = 58;
+        const peGap = 14;
+
+        const laneX = panelRight + 24;
+        const busStartX = laneX + 30;
+        const busEndX = busStartX + M * (peW + peGap) - peGap;
+        const laneW = busEndX - laneX + 64;
+
+        // Input fmap panel
+        ctx.fillStyle = "#eff6ff";
+        ctx.strokeStyle = "#bfdbfe";
+        ctx.lineWidth = 2;
+        roundedRect(leftX, 64, panelW, 440, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#1e3a8a";
+        ctx.font = "bold 22px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText("Input fmap", leftX + 18, 96);
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "600 18px monospace";
+        ctx.fillText("I[c,p+r,q+s]", leftX + 18, 122);
+
+        ctx.fillStyle = "#334155";
+        ctx.font = "600 14px sans-serif";
+        ctx.fillText("Broadcast over active channel", leftX + 18, 146);
+
+        // Channel rows
+        for (let ci = 0; ci < C; ci++) {
+          const y = rowStartY + ci * rowGap;
+          const activeRow = true;
+
+          ctx.fillStyle = activeRow ? "#dbeafe" : "#f8fafc";
+          ctx.strokeStyle = activeRow ? "#2563eb" : "#cbd5e1";
+          ctx.lineWidth = activeRow ? 2.8 : 1.5;
+          roundedRect(laneX, y - 34, laneW, 86, 10);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = activeRow ? "#1d4ed8" : "#64748b";
+          ctx.font = "bold 16px sans-serif";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "alphabetic";
+          ctx.fillText(`Input Channel c=${ci}`, laneX + 12, y - 8);
+
+          // activation bus for this channel
+          ctx.strokeStyle = activeRow ? "#1d4ed8" : "#93c5fd";
+          ctx.lineWidth = activeRow ? 7 : 4;
+          ctx.beginPath();
+          ctx.moveTo(busStartX, y);
+          ctx.lineTo(busEndX, y);
+          ctx.stroke();
+
+          if (activeRow) {
+            const tokenX = busStartX - 54;
+            const tokenY = y;
+            ctx.fillStyle = "#dbeafe";
+            ctx.strokeStyle = "#1d4ed8";
+            ctx.lineWidth = 2;
+            roundedRect(tokenX - 34, tokenY - 16, 68, 32, 4);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#1e3a8a";
+            ctx.font = "bold 14px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(`I${ci}${p + r}${q + s}`, tokenX, tokenY + 1);
+
+            drawArrow(tokenX + 36, tokenY, busStartX - 2, y, "#2563eb", 4, 9);
+          }
+
+          // PE array for this channel row
+          for (let m = 0; m < M; m++) {
+            const peX = busStartX + m * (peW + peGap);
+            const peY = y + 22;
+
+            ctx.fillStyle = activeRow ? "#ffffff" : "#f8fafc";
+            ctx.strokeStyle = activeRow ? "#334155" : "#94a3b8";
+            ctx.lineWidth = 2;
+            roundedRect(peX, peY, peW, peH, 4);
+            ctx.fill();
+            ctx.stroke();
+
+            // local weight register
+            ctx.fillStyle = activeRow ? "#16a34a" : "#86efac";
+            roundedRect(peX + 6, peY + 26, peW - 12, 24, 3);
+            ctx.fill();
+
+            ctx.fillStyle = "#052e16";
+            ctx.font = "bold 12px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(`F[${m},${ci},${r},${s}]`, peX + peW / 2, peY + 41);
+
+            // tap arrow from bus into PE (active row highlighted)
+            drawArrow(peX + peW / 2, y, peX + peW / 2, peY - 2, activeRow ? "#2563eb" : "#93c5fd", activeRow ? 3.5 : 2.2, 7);
+          }
+        }
+
+        // Output / psum bank
+        const outY = 520;
+        const outX = busStartX;
+        const outCellW = peW;
+        const maxAccum = C * R * S;
+
+        ctx.fillStyle = "#ef4444";
+        ctx.font = "bold 22px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(`Psum update target: O[m,${p},${q}]`, outX, outY - 20);
+
+        for (let m = 0; m < M; m++) {
+          const x = outX + m * (outCellW + peGap);
+          const count = accum[m][p][q];
+          const ratio = Math.min(1, count / maxAccum);
+
+          ctx.fillStyle = "#fff1f2";
+          ctx.strokeStyle = "#e11d48";
+          ctx.lineWidth = 2;
+          roundedRect(x, outY, outCellW, 88, 6);
+          ctx.fill();
+          ctx.stroke();
+
+          // progress fill
+          ctx.fillStyle = "#fecdd3";
+          const fillH = Math.max(0, Math.floor(58 * ratio));
+          roundedRect(x + 8, outY + 72 - fillH, outCellW - 16, fillH, 3);
+          ctx.fill();
+
+          ctx.fillStyle = "#881337";
+          ctx.font = "bold 12px monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "alphabetic";
+          ctx.fillText(`O[${m},${p},${q}]`, x + outCellW / 2, outY + 18);
+          ctx.fillText(`${count}/${maxAccum}`, x + outCellW / 2, outY + 36);
+        }
+
+        // Current active channel annotation
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "600 18px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText("Active channels this cycle: c=0,1,2 (parallel) with m=0..7", leftX + 16, 474);
+
+        // parameter block
+        ctx.fillStyle = "#f8fafc";
+        ctx.strokeStyle = "#cbd5e1";
+        roundedRect(leftX, 618, 320, 106, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 18px monospace";
+        ctx.fillText(`M=${M}, C=${C}, R=${R}, S=${S}, P=${P}, Q=${Q}`, leftX + 16, 650);
+        ctx.font = "14px monospace";
+        ctx.fillText("Total cycles in this demo:", leftX + 16, 678);
+        ctx.fillText(`${TOTAL_STEPS} = R*S*P*Q`, leftX + 16, 702);
+      }
+
+      // Update textual state cards on the right panel.
+      function renderRightPanel(indices) {
+        const { r, s, p, q } = indices;
+
+        subtitle.textContent = `Cycle ${step + 1}/${TOTAL_STEPS}: r=${r}, s=${s}, p=${p}, q=${q} (c=0..2 in parallel)`;
+
+        const items = [
+          ["r", r],
+          ["s", s],
+          ["p", p],
+          ["q", q],
+          ["c", "0..2 (parallel)"],
+          ["m", "0..7 (parallel)"],
+        ];
+
+        indexInfo.innerHTML = items
+          .map(
+            ([k, v]) =>
+              `<div class="bg-slate-50 rounded-md px-2 py-1 border border-slate-200"><span class="font-semibold text-slate-700 code-font">${k}</span>: <span class="text-slate-600 code-font">${v}</span></div>`
+          )
+          .join("");
+
+        equation.textContent = `for m in parallel(0..7):\n  O[m,${p},${q}] += Σ_c I[c,${p}+${r},${q}+${s}] * F[m,c,${r},${s}]`;
+
+        const lines = [
+          "for r in range(R):",
+          "  for s in range(S):",
+          "    for p in range(P):",
+          "      for q in range(Q):",
+          "        parallel-for c in range(C):",
+          "          parallel-for m in range(M):",
+          "            O[m,p,q] += I[c,p+r,q+s] * F[m,c,r,s]",
+        ];
+
+        loopCode.innerHTML = lines
+          .map((line, i) => {
+            const active = i >= 0 && i <= 6;
+            const bg = active && i === 5 ? "rgba(59,130,246,0.25)" : active && i === 6 ? "rgba(239,68,68,0.25)" : "transparent";
+            return `<div style="background:${bg};padding:1px 4px;border-radius:4px;">${line}</div>`;
+          })
+          .join("");
+      }
+
+      // Render one frame from current step state.
+      function draw() {
+        const indices = decodeStep(step);
+        const accum = buildAccum(step + 1);
+
+        ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+        ctx.save();
+        ctx.translate(drawOffsetX, drawOffsetY);
+        ctx.scale(drawScale, drawScale);
+        drawArchitecture(indices, accum);
+        ctx.restore();
+
+        renderRightPanel(indices);
+        drawReceptiveField(indices);
+      }
+
+      // Responsive resize for the main canvas and mini diagram canvas.
+      function resize() {
+        const container = canvas.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = container.clientWidth;
+
+        drawScale = Math.min(1.08, (cssWidth - 2) / DESIGN_WIDTH);
+        const cssHeight = Math.ceil(DESIGN_HEIGHT * drawScale + 10);
+        drawOffsetX = (cssWidth - DESIGN_WIDTH * drawScale) / 2;
+
+        canvas.width = Math.floor(cssWidth * dpr);
+        canvas.height = Math.floor(cssHeight * dpr);
+        canvas.style.width = cssWidth + "px";
+        canvas.style.height = cssHeight + "px";
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        resizeRfCanvas();
+        draw();
+      }
+
+      // Playback controls.
+      function nextStep() {
+        step = (step + 1) % TOTAL_STEPS;
+        draw();
+        if (step === 0 && isPlaying) togglePlay();
+      }
+
+      function prevStep() {
+        step = (step - 1 + TOTAL_STEPS) % TOTAL_STEPS;
+        draw();
+      }
+
+      function update() {
+        if (!isPlaying) return;
+        const now = Date.now();
+        const speed = 500;
+        if (now - lastTime > speed) {
+          nextStep();
+          lastTime = now;
+        }
+        requestAnimationFrame(update);
+      }
+
+      function togglePlay() {
+        isPlaying = !isPlaying;
+        playIcon.innerText = isPlaying ? "⏸" : "▶";
+        if (isPlaying) {
+          lastTime = Date.now();
+          update();
+        }
+      }
+
+      // Wire UI controls.
+      backBtn.addEventListener("click", () => {
+        if (isPlaying) togglePlay();
+        prevStep();
+      });
+
+      nextBtn.addEventListener("click", () => {
+        if (isPlaying) togglePlay();
+        nextStep();
+      });
+
+      playBtn.addEventListener("click", togglePlay);
+
+      resetBtn.addEventListener("click", () => {
+        step = 0;
+        if (isPlaying) togglePlay();
+        draw();
+      });
+
+      window.addEventListener("resize", resize);
+
+      // Initial paint after layout settles.
+      setTimeout(resize, 100);
+    })();
+  </script>
+</body>
+
+</html>

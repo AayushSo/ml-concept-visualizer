@@ -1,0 +1,621 @@
+<!doctype html>
+<!-- Brief: Visualization of output-stationary style dataflow with 8 processing elements in parallel. -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Output-Stationary Accelerator - 8 PE Parallel Visualization</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style type="text/tailwindcss">
+    @import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap");
+
+    body {
+      background-color: #f8fafc;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .code-font {
+      font-family: "Fira Code", monospace;
+    }
+
+    .btn-control {
+      @apply flex items-center justify-center rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+    }
+
+    .btn-nav {
+      @apply w-10 h-10 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200;
+    }
+
+    .btn-play {
+      @apply w-12 h-12 bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200;
+    }
+
+    .btn-action {
+      @apply px-4 h-10 bg-white text-slate-500 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 text-xs font-bold uppercase tracking-wider;
+    }
+  </style>
+</head>
+
+<body class="p-4 md:p-8">
+  <div class="max-w-6xl mx-auto">
+    <header class="mb-8 text-center">
+      <h1 class="text-3xl font-bold text-slate-800 mb-2">
+        Output-Stationary Accelerator – 8 Processing Elements in Parallel
+      </h1>
+      <div id="focusSubtitle" class="text-xl text-blue-600 font-serif italic">
+        Dataflow (Focus: Output 0)
+      </div>
+    </header>
+
+    <div class="space-y-6">
+      <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+        <canvas id="mainCanvas" class="w-full h-auto"></canvas>
+        <div class="mt-1 pt-1 border-t border-slate-100">
+          <h3 class="font-bold text-slate-400 text-[10px] uppercase tracking-[0.2em] mb-5 text-center">
+            Execution Controller
+          </h3>
+
+          <div class="flex flex-col items-center gap-4">
+            <div class="flex items-center gap-3">
+              <button id="backBtn" class="btn-control btn-nav" title="Previous Step">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>
+
+              <button id="playBtn" class="btn-control btn-play" title="Play / Pause">
+                <span id="playIcon" class="text-xl ml-0.5">▶</span>
+              </button>
+
+              <button id="nextBtn" class="btn-control btn-nav" title="Next Step">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+            </div>
+
+            <button id="resetBtn" class="btn-control btn-action">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              Reset Sequence
+            </button>
+
+            <div class="flex items-center gap-2 mt-1">
+              <button id="focusOutput0Btn"
+                class="px-3 h-9 rounded-lg border border-slate-300 text-xs font-bold tracking-wide bg-blue-600 text-white">
+                Output 0
+              </button>
+              <button id="focusBothBtn"
+                class="px-3 h-9 rounded-lg border border-slate-300 text-xs font-bold tracking-wide bg-white text-slate-600 hover:bg-slate-50">
+                Output 0,1
+              </button>
+              <button id="focusAllBtn"
+                class="px-3 h-9 rounded-lg border border-slate-300 text-xs font-bold tracking-wide bg-white text-slate-600 hover:bg-slate-50">
+                All Outputs
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById("mainCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const backBtn = document.getElementById("backBtn");
+      const playBtn = document.getElementById("playBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const playIcon = document.getElementById("playIcon");
+      const focusSubtitle = document.getElementById("focusSubtitle");
+      const focusOutput0Btn = document.getElementById("focusOutput0Btn");
+      const focusBothBtn = document.getElementById("focusBothBtn");
+      const focusAllBtn = document.getElementById("focusAllBtn");
+
+      const PE_COUNT = 8;
+      const INPUT_LEN = 11;
+      const FILTER_LEN = 8;
+      const OUTPUT_LEN = 8;
+      const STEPS = FILTER_LEN;
+
+      let step = 0;
+      let isPlaying = false;
+      let lastTime = 0;
+      let drawScale = 1;
+      let drawOffsetX = 0;
+      let drawOffsetY = 12;
+      let focusMode = "output0"; // output0 | both | all
+
+      const DESIGN_WIDTH = 1250;
+      const DESIGN_HEIGHT = 680;
+
+      function roundedRect(x, y, w, h, r = 6) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+      }
+
+      function updateFocusSubtitle() {
+        const subtitleMap = {
+          output0: "Output-Stationary Dataflow (Focus: Output 0)",
+          both: "Output-Stationary Dataflow (Focus: Output 0,1)",
+          all: "Output-Stationary Dataflow (Focus: All Outputs)",
+        };
+        focusSubtitle.textContent = subtitleMap[focusMode] || subtitleMap.output0;
+      }
+
+      function updateFocusButtons() {
+        const map = {
+          output0: focusOutput0Btn,
+          both: focusBothBtn,
+          all: focusAllBtn,
+        };
+
+        [focusOutput0Btn, focusBothBtn, focusAllBtn].forEach((btn) => {
+          btn.classList.remove("bg-blue-600", "text-white");
+          btn.classList.add("bg-white", "text-slate-600");
+        });
+
+        const activeBtn = map[focusMode];
+        activeBtn.classList.remove("bg-white", "text-slate-600");
+        activeBtn.classList.add("bg-blue-600", "text-white");
+        updateFocusSubtitle();
+      }
+
+      function resize() {
+        const container = canvas.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = container.clientWidth;
+
+        drawScale = Math.min(1, (cssWidth - 16) / DESIGN_WIDTH);
+        const cssHeight = Math.ceil(DESIGN_HEIGHT * drawScale + 24);
+        drawOffsetX = (cssWidth - DESIGN_WIDTH * drawScale) / 2;
+
+        canvas.width = Math.floor(cssWidth * dpr);
+        canvas.height = Math.floor(cssHeight * dpr);
+        canvas.style.width = cssWidth + "px";
+        canvas.style.height = cssHeight + "px";
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        draw();
+      }
+
+      function drawArrow(x1, y1, x2, y2, color, width = 6, headLen = 12) {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawRightArrow(x1, y, x2, color, width = 4, headLen = 8) {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2 - headLen, y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x2, y);
+        ctx.lineTo(x2 - headLen, y - headLen * 0.65);
+        ctx.lineTo(x2 - headLen, y + headLen * 0.65);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawDashedRect(x, y, w, h, color) {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.3;
+        ctx.strokeRect(x - 5, y - 5, w + 10, h + 10);
+        ctx.restore();
+      }
+
+      function drawTopRows() {
+        const activeS = step % FILTER_LEN;
+        const TOP_LANE_Y = 56;
+
+        function lane(yBase, outputIdx, strokeColor, showInputFilter = true, filterOffsetCells = 0) {
+          const startX = 470;
+          const cellW = 34;
+          const cellH = 28;
+
+          const inputY = yBase;
+          const filterY = yBase + 42;
+          const outputY = yBase + 94;
+
+          // Input row: 0..10
+          for (let i = 0; i < INPUT_LEN; i++) {
+            const x = startX + i * cellW;
+            ctx.fillStyle = "#b8c7db";
+            ctx.strokeStyle = "#334155";
+            ctx.lineWidth = 1;
+            roundedRect(x, inputY, cellW, cellH, 0);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = "#111827";
+            ctx.font = "bold 15px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(String(i), x + cellW / 2, inputY + cellH / 2 + 1);
+          }
+
+          // Filter row: 0..7
+          for (let i = 0; i < FILTER_LEN; i++) {
+            const x = startX + (i + filterOffsetCells) * cellW;
+            ctx.fillStyle = "#d5e6bf";
+            ctx.strokeStyle = "#3f3f46";
+            roundedRect(x, filterY, cellW, cellH, 0);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = "#111827";
+            ctx.font = "bold 15px monospace";
+            ctx.fillText(String(i), x + cellW / 2, filterY + cellH / 2 + 1);
+          }
+
+          // Output row: 0..7
+          for (let i = 0; i < OUTPUT_LEN; i++) {
+            const x = startX + i * cellW;
+            ctx.fillStyle = "#e8c4c0";
+            ctx.strokeStyle = "#3f3f46";
+            roundedRect(x, outputY, cellW, cellH, 0);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = "#111827";
+            ctx.font = "bold 15px monospace";
+            ctx.fillText(String(i), x + cellW / 2, outputY + cellH / 2 + 1);
+          }
+
+          ctx.fillStyle = "#111827";
+          ctx.font = "500 20px sans-serif";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "alphabetic";
+          ctx.fillText(`Output ${outputIdx}`, startX - 8, inputY - 10);
+
+          if (showInputFilter) {
+            // Keep input highlight progressing with time (do not wrap every 4 steps)
+            const inputActive = outputIdx + step;
+            if (inputActive >= 0 && inputActive < INPUT_LEN) {
+              drawDashedRect(startX + inputActive * cellW, inputY, cellW, cellH, strokeColor);
+            }
+            drawDashedRect(startX + (activeS + filterOffsetCells) * cellW, filterY, cellW, cellH, strokeColor);
+          }
+
+          drawDashedRect(startX + outputIdx * cellW, outputY, cellW, cellH, strokeColor);
+        }
+
+        if (focusMode === "output0") {
+          lane(TOP_LANE_Y, 0, "#dc2626");
+        } else if (focusMode === "both") {
+          lane(TOP_LANE_Y, 0, "#dc2626");
+          lane(530, 1, "#2563eb", true, 1);
+        } else {
+          lane(TOP_LANE_Y, 0, "#dc2626");
+          lane(530, 1, "#2563eb", true, 1);
+        }
+      }
+
+      function drawArchitecture() {
+        const peStartX = 90;
+        const peTop = 290;
+        const peW = 86;
+        const peH = 82;
+        const peGap = 20;
+
+        const gbX = peStartX;
+        const gbW = PE_COUNT * peW + (PE_COUNT - 1) * peGap;
+        const gbY = peTop - 130;
+        const gbH = 50;
+
+        // Global buffer
+        ctx.fillStyle = "#4b4b4d";
+        roundedRect(gbX, gbY, gbW, gbH, 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#e5e7eb";
+        ctx.font = "bold 38px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText("Global Buffer", gbX + gbW / 2, gbY + 35);
+
+        // Buses
+        const weightBusY = gbY + gbH + 36;
+        const actBusY = peTop + peH + 42;
+
+        ctx.strokeStyle = "#16a34a";
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(peStartX + 10, weightBusY);
+        ctx.lineTo(peStartX + gbW - 10, weightBusY);
+        ctx.stroke();
+
+        ctx.strokeStyle = "#1d4ed8";
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(peStartX + 10, actBusY);
+        ctx.lineTo(peStartX + gbW - 10, actBusY);
+        ctx.stroke();
+
+        ctx.fillStyle = "#16a34a";
+        ctx.font = "bold 32px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("Weight", peStartX - 20, weightBusY - 16);
+
+        ctx.fillStyle = "#1d4ed8";
+        ctx.fillText("Activation", peStartX - 20, actBusY + 34);
+
+        const activeS = step % FILTER_LEN;
+
+        // Token from global buffer to weight bus
+        const tokenX = gbX + gbW / 2;
+        const tokenY = gbY + gbH + 18;
+        ctx.fillStyle = "#dcfce7";
+        ctx.strokeStyle = "#15803d";
+        ctx.lineWidth = 2;
+        roundedRect(tokenX - 24, tokenY - 18, 48, 36, 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#14532d";
+        ctx.font = "bold 22px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(activeS), tokenX, tokenY + 1);
+
+        drawArrow(tokenX, tokenY + 18, tokenX, weightBusY - 3, "#16a34a", 5, 11);
+
+        // Activation source token at left
+        const incomingAct = step;
+        const actSrcX = peStartX - 26;
+        ctx.fillStyle = "#dbeafe";
+        ctx.strokeStyle = "#1d4ed8";
+        ctx.lineWidth = 1.8;
+        roundedRect(actSrcX, actBusY - 16, 34, 28, 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#1e3a8a";
+        ctx.font = "bold 14px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        if (incomingAct >= 0 && incomingAct < INPUT_LEN) {
+          ctx.fillText(String(incomingAct), actSrcX + 17, actBusY - 2);
+        } else {
+          ctx.fillText("•", actSrcX + 17, actBusY - 2);
+        }
+
+        // PE array
+        for (let i = 0; i < PE_COUNT; i++) {
+          const x = peStartX + i * (peW + peGap);
+          const cx = x + peW / 2;
+
+          // weight drop into each PE
+          drawArrow(cx, weightBusY, cx, peTop - 3, "#16a34a", 4.8, 9);
+
+          // PE body
+          ctx.fillStyle = "#f3f4f6";
+          ctx.strokeStyle = "#111827";
+          ctx.lineWidth = 4;
+          roundedRect(x, peTop, peW, peH, 0);
+          ctx.fill();
+          ctx.stroke();
+
+          // MAC icon
+          ctx.strokeStyle = "#111827";
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          ctx.arc(x + 20, peTop + 20, 10, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(x + 56, peTop + 20, 10, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(x + 14, peTop + 14);
+          ctx.lineTo(x + 26, peTop + 26);
+          ctx.moveTo(x + 26, peTop + 14);
+          ctx.lineTo(x + 14, peTop + 26);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(x + 56, peTop + 14);
+          ctx.lineTo(x + 56, peTop + 26);
+          ctx.moveTo(x + 50, peTop + 20);
+          ctx.lineTo(x + 62, peTop + 20);
+          ctx.stroke();
+
+          // local weight register (latches broadcast weight)
+          ctx.fillStyle = "#16a34a";
+          ctx.strokeStyle = "#14532d";
+          ctx.lineWidth = 1.2;
+          roundedRect(x + peW - 20, peTop + 7, 13, 13, 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = "#ecfdf5";
+          ctx.font = "bold 9px monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("W", x + peW - 13.5, peTop + 13.5);
+
+          // output-stationary psum register (stays local)
+          ctx.fillStyle = "#ef4444";
+          ctx.fillRect(x + 8, peTop + peH - 28, peW - 16, 20);
+          ctx.fillStyle = "#fee2e2";
+          ctx.font = "bold 14px monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(`O${i}`, x + peW / 2, peTop + peH - 18);
+
+          // activation token in each PE (shifts right over time)
+          const actVal = step - i;
+          ctx.fillStyle = "#dbeafe";
+          ctx.strokeStyle = "#2563eb";
+          ctx.lineWidth = 1.4;
+          roundedRect(cx - 13, actBusY - 24, 26, 16, 1);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = "#1e3a8a";
+          ctx.font = "bold 12px monospace";
+          if (actVal >= 0 && actVal < INPUT_LEN) {
+            ctx.fillText(String(actVal), cx, actBusY - 16);
+          } else {
+            ctx.fillText("·", cx, actBusY - 16);
+          }
+
+          // explicit activation transfer arrow: PE(i) -> PE(i+1)
+          if (i < PE_COUNT - 1) {
+            const transferY = peTop + 24;
+            const x1 = x + peW + 4;
+            const x2 = x + peW + peGap - 8;
+            drawRightArrow(x1, transferY, x2, "#2563eb", 3.6, 8);
+          }
+
+          // PE label centered inside PE box
+          ctx.fillStyle = "#0f172a";
+          ctx.font = "bold 16px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(`P${i}`, x + peW / 2, peTop + peH / 2 + 6);
+
+          // focus highlighting
+          const highlightColor = i === 0 ? "#dc2626" : "#2563eb";
+          if (
+            (focusMode === "output0" && i === 0) ||
+            (focusMode === "both" && (i === 0 || i === 1)) ||
+            (focusMode === "all" && i < OUTPUT_LEN)
+          ) {
+            drawDashedRect(x, peTop, peW, peH, focusMode === "all" ? "#dc2626" : highlightColor);
+          }
+        }
+
+        // horizontal activation flow arrows through PE chain
+        for (let i = 0; i < PE_COUNT - 1; i++) {
+          const x = peStartX + i * (peW + peGap);
+          const start = x + peW + 6;
+          const end = x + peW + peGap - 8;
+          drawRightArrow(start, actBusY, end, "#2563eb", 3.8, 8);
+        }
+
+        // explanation text
+        ctx.fillStyle = "#334155";
+        ctx.font = "500 13px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText("Each PE has local memory registers: W stores the broadcast weight for MAC, and O stores local psum (output-stationary).", 72, 14);
+
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+        ctx.save();
+        ctx.translate(drawOffsetX, drawOffsetY);
+        ctx.scale(drawScale, drawScale);
+        drawTopRows();
+        drawArchitecture();
+        ctx.restore();
+      }
+
+      function nextStep() {
+        step = (step + 1) % STEPS;
+        draw();
+        if (step === 0 && isPlaying) togglePlay();
+      }
+
+      function prevStep() {
+        step = (step - 1 + STEPS) % STEPS;
+        draw();
+      }
+
+      function update() {
+        if (!isPlaying) return;
+        const now = Date.now();
+        const speed = 560;
+        if (now - lastTime > speed) {
+          nextStep();
+          lastTime = now;
+        }
+        requestAnimationFrame(update);
+      }
+
+      function togglePlay() {
+        isPlaying = !isPlaying;
+        playIcon.innerText = isPlaying ? "⏸" : "▶";
+        if (isPlaying) {
+          lastTime = Date.now();
+          update();
+        }
+      }
+
+      backBtn.addEventListener("click", () => {
+        if (isPlaying) togglePlay();
+        prevStep();
+      });
+
+      nextBtn.addEventListener("click", () => {
+        if (isPlaying) togglePlay();
+        nextStep();
+      });
+
+      playBtn.addEventListener("click", togglePlay);
+
+      resetBtn.addEventListener("click", () => {
+        step = 0;
+        if (isPlaying) togglePlay();
+        draw();
+      });
+
+      focusOutput0Btn.addEventListener("click", () => {
+        focusMode = "output0";
+        updateFocusButtons();
+        draw();
+      });
+
+      focusBothBtn.addEventListener("click", () => {
+        focusMode = "both";
+        updateFocusButtons();
+        draw();
+      });
+
+      focusAllBtn.addEventListener("click", () => {
+        focusMode = "all";
+        updateFocusButtons();
+        draw();
+      });
+
+      window.addEventListener("resize", resize);
+
+      setTimeout(() => {
+        updateFocusButtons();
+        resize();
+      }, 100);
+    })();
+  </script>
+</body>
+
+</html>

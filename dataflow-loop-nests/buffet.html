@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eyriss Buffet Step-by-Step Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f8fafc; font-family: 'JetBrains Mono', monospace, sans-serif; }
+        canvas { border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); background: white; }
+        .step-active { border-color: #6366f1; background-color: #f5f3ff; color: #4338ca; }
+    </style>
+</head>
+<body class="p-4 md:p-8 bg-slate-100">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-6 flex justify-between items-end">
+            <div>
+                <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Eyriss Buffet: Step-by-Step</h1>
+                <p class="text-slate-500 text-sm mt-1">Manual orchestration with synchronized Command & Address signals.</p>
+            </div>
+            <div class="text-right">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cycle Counter</span>
+                <div id="cycleDisplay" class="text-3xl font-black text-indigo-600">000</div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Main Visualization -->
+            <div class="lg:col-span-3">
+                <canvas id="buffetCanvas" class="w-full h-auto"></canvas>
+                
+                <!-- Controls -->
+                <div class="mt-6 flex flex-wrap gap-3 items-center">
+                    <div class="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1">
+                        <button id="prevBtn" class="px-4 py-2 hover:bg-slate-50 text-slate-600 font-bold transition rounded-lg">← Prev</button>
+                        <div class="w-px h-8 bg-slate-100 self-center"></div>
+                        <button id="nextBtn" class="px-6 py-2 hover:bg-slate-50 text-indigo-600 font-bold transition rounded-lg">Next Step →</button>
+                    </div>
+
+                    <button id="playBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold transition shadow-lg flex items-center gap-2">
+                        <span id="playIcon">▶</span> <span id="playText">Auto</span>
+                    </button>
+                    
+                    <button id="resetBtn" class="bg-slate-200 text-slate-600 px-6 py-3 rounded-xl font-bold hover:bg-slate-300 transition">Reset</button>
+                </div>
+            </div>
+
+            <!-- Explanation Panel -->
+            <div class="space-y-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 h-full">
+                    <h3 class="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Step Analysis</h3>
+                    <div id="explanationBox" class="text-sm leading-relaxed text-slate-600 italic">
+                        Press "Next Step" to begin...
+                    </div>
+                    
+                    <div class="mt-6 pt-6 border-t border-slate-100 space-y-3">
+                        <div id="status-l1" class="flex justify-between items-center text-[10px] font-bold uppercase p-2 border rounded-lg transition-colors">
+                            <span>L1 Orchestration</span>
+                            <span id="l1-state" class="text-slate-400">Idle</span>
+                        </div>
+                        <div id="status-l0" class="flex justify-between items-center text-[10px] font-bold uppercase p-2 border rounded-lg transition-colors">
+                            <span>L0 Transfer</span>
+                            <span id="l0-state" class="text-slate-400">Idle</span>
+                        </div>
+                        <div id="status-compute" class="flex justify-between items-center text-[10px] font-bold uppercase p-2 border rounded-lg transition-colors">
+                            <span>Compute Loop</span>
+                            <span id="compute-state" class="text-slate-400">Idle</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('buffetCanvas');
+        const ctx = canvas.getContext('2d');
+        const cycleDisplay = document.getElementById('cycleDisplay');
+        const explanationBox = document.getElementById('explanationBox');
+        
+        const COLORS = {
+            input: '#3b679b',  
+            output: '#a65147', 
+            text: '#1e293b',
+            label: '#64748b',
+            data_in: '#3b82f6',
+            data_prod: '#fbbf24',
+            data_sum: '#ef4444'
+        };
+
+        let cycle = 0;
+        let isPlaying = false;
+        let playInterval = null;
+        let particles = [];
+
+        function resize() {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = 680 * dpr;
+            ctx.scale(dpr, dpr);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor(x, y, tx, ty, color, type, onReach) {
+                this.x = x; this.y = y; this.tx = tx; this.ty = ty;
+                this.color = color; this.type = type; this.onReach = onReach;
+                this.speed = 6; this.dead = false;
+            }
+            update() {
+                const dx = this.tx - this.x; const dy = this.ty - this.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < this.speed) { this.dead = true; if(this.onReach) this.onReach(); }
+                else { this.x += (dx/dist)*this.speed; this.y += (dy/dist)*this.speed; }
+            }
+            draw() {
+                ctx.fillStyle = this.color; 
+                ctx.beginPath(); 
+                ctx.arc(this.x, this.y, 8, 0, Math.PI * 2); 
+                ctx.fill();
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+                ctx.fillText('V', this.x, this.y + 3);
+            }
+        }
+
+        const EXPLANATIONS = [
+            "<strong>Phase 0: L1 Fill Orchestration</strong><br><strong>Synchronized Control:</strong> The hardware issues the 'Fill' command and the Write Address simultaneously. This tells L1 exactly where to store the incoming external <strong>Input Data Value</strong>.",
+            "<strong>Phase 1: L1 Read Orchestration</strong><br><strong>Synchronized Control:</strong> The L1 controller triggers a Read. Both the <strong>Read Address [0,1,2]</strong> and the <strong>'r,r,r' Command</strong> are active now, selecting the specific sequence of data tokens to release.",
+            "<strong>Phase 2: L1 to L0 Transfer</strong><br>Data tokens (V) move from L1 'Read Value' to L0 'Fill Value'. Note that while data moves, the next addresses are already being prepared in the background (Decoupling).",
+            "<strong>Phase 3: L0 Input Orchestration</strong><br><strong>Synchronized Control:</strong> The multiplier is fed by L0 Input. The <strong>'r,r,r,s1' Command</strong> and <strong>Read Address [0,1,2]</strong> are active together, defining the exact access pattern for the compute unit.",
+            "<strong>Phase 4: Output Accumulation Read</strong><br><strong>Synchronized Control:</strong> To update a result, we must first fetch the old one. The <strong>'r+u' Command</strong> and <strong>Read Address [0,0,0]</strong> pull the partial sum for the Adder.",
+            "<strong>Phase 5: Output Result Update</strong><br><strong>Synchronized Control:</strong> The calculation is finished. The <strong>'r+u' Command</strong> remains active with the <strong>Update Address [0,0,0]</strong> to overwrite the slot with the new <strong>Accumulated Sum</strong>."
+        ];
+
+        function step(direction = 1) {
+            if (direction === -1 && cycle > 0) { cycle--; } else { cycle++; }
+            cycleDisplay.innerText = cycle.toString().padStart(3, '0');
+            const phase = cycle % 6;
+            explanationBox.innerHTML = EXPLANATIONS[phase];
+
+            document.querySelectorAll('[id^="status-"]').forEach(el => el.classList.remove('step-active'));
+            document.querySelectorAll('[id$="-state"]').forEach(el => { el.innerText = "Idle"; el.className = "text-slate-400"; });
+
+            if (phase === 0 || phase === 1) {
+                document.getElementById('status-l1').classList.add('step-active');
+                document.getElementById('l1-state').innerText = "Orchestrating";
+                document.getElementById('l1-state').className = "text-blue-600";
+                if (phase === 0) particles.push(new Particle(20, 480, 100, 480, COLORS.data_in, 'Input'));
+            } else if (phase === 2) {
+                document.getElementById('status-l0').classList.add('step-active');
+                document.getElementById('l0-state').innerText = "Transferring";
+                document.getElementById('l0-state').className = "text-indigo-600";
+                particles.push(new Particle(330, 480, 450, 480, COLORS.data_in, 'Input'));
+            } else {
+                document.getElementById('status-compute').classList.add('step-active');
+                document.getElementById('compute-state').innerText = "Active";
+                document.getElementById('compute-state').className = "text-orange-600";
+                if (phase === 3) particles.push(new Particle(580, 480, 720, 480, COLORS.data_prod, 'Product'));
+                if (phase === 4) particles.push(new Particle(550, 180, 720, 180, COLORS.data_sum, 'Partial Sum'));
+                if (phase === 5) particles.push(new Particle(720, 180, 550, 180, COLORS.data_sum, 'Result'));
+            }
+        }
+
+        function drawStream(x, y, values, label, highlightIdx = -1, invert=false) {
+            ctx.font = 'bold 10px monospace';
+            ctx.fillStyle = COLORS.label;
+            ctx.textAlign = "center";
+            ctx.fillText(label, x, y + (invert ? 65 : -65));
+            values.forEach((v, i) => {
+                ctx.fillStyle = i === highlightIdx ? COLORS.text : '#cbd5e1';
+                if(i === highlightIdx) {
+                    ctx.font = 'bold 11px monospace';
+                    ctx.shadowBlur = 4; ctx.shadowColor = 'rgba(99,102,241,0.5)';
+                } else {
+                    ctx.font = '10px monospace';
+                    ctx.shadowBlur = 0;
+                }
+                const offset = invert ? (i * 12 + 15) : (-i * 12 - 15);
+                ctx.fillText(v, x, y + offset);
+            });
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = highlightIdx >= 0 ? '#6366f1' : '#cbd5e1';
+            ctx.beginPath();
+            if(invert) { ctx.moveTo(x, y-5); ctx.lineTo(x, y+10); }
+            else { ctx.moveTo(x, y+5); ctx.lineTo(x, y-10); }
+            ctx.stroke();
+        }
+
+        function drawBuffet(x, y, w, h, title, color, ports=[]) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, w, h);
+            ctx.fillStyle = 'white'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText(title, x + w/2, y + 25);
+            ports.forEach(p => {
+                ctx.strokeStyle = '#222'; ctx.strokeRect(x + p.x, y + p.y, p.w, p.h);
+                ctx.fillStyle = 'white'; ctx.fillRect(x + p.x, y + p.y, p.w, p.h);
+                if (p.label && !p.isStreamed) {
+                    ctx.fillStyle = COLORS.label; ctx.font = '8px sans-serif'; ctx.textAlign = p.align || 'center';
+                    let lx = x + p.x + p.w / 2; let ly = y + p.y;
+                    if (p.y < 0) ly -= 5; else if (p.y >= h) ly += 18;
+                    else if (p.x < 0) { lx -= 10; ly += p.h / 1.5; ctx.textAlign = 'right'; }
+                    else if (p.x >= w) { lx += 10; ly += p.h / 1.5; ctx.textAlign = 'left'; }
+                    ctx.fillText(p.label, lx, ly);
+                }
+            });
+        }
+
+        function drawLegend() {
+            const lx = 20, ly = 20;
+            ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(lx - 10, ly - 10, 180, 80);
+            ctx.strokeStyle = '#e2e8f0'; ctx.strokeRect(lx - 10, ly - 10, 180, 80);
+            const items = [
+                { color: COLORS.data_in, label: "Input Data Value" },
+                { color: COLORS.data_prod, label: "Computed Product" },
+                { color: COLORS.data_sum, label: "Accumulated Sum" }
+            ];
+            items.forEach((item, i) => {
+                ctx.fillStyle = item.color; ctx.beginPath(); ctx.arc(lx + 5, ly + 5 + (i*20), 5, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = COLORS.label; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
+                ctx.fillText(item.label, lx + 20, ly + 9 + (i*20));
+            });
+        }
+
+        function draw() {
+            const w = canvas.width / (window.devicePixelRatio || 1);
+            const h = canvas.height / (window.devicePixelRatio || 1);
+            ctx.clearRect(0, 0, w, h);
+            const phase = cycle % 6;
+            drawLegend();
+
+            ctx.setLineDash([5, 5]); ctx.strokeStyle = '#cbd5e1';
+            ctx.beginPath();
+            ctx.moveTo(20, 480); ctx.lineTo(100, 480); 
+            ctx.moveTo(330, 480); ctx.lineTo(450, 480); 
+            ctx.moveTo(580, 480); ctx.lineTo(720, 480); 
+            ctx.moveTo(720, 480); ctx.lineTo(720, 180); 
+            ctx.moveTo(720, 180); ctx.lineTo(550, 180); 
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // STREAMS - SYNCHRONIZED HIGHLIGHTING
+            drawStream(100 + 177, 400, ["6,7,8", "3,4,5", "0,1,2", "..."], "Read Address", phase === 1 ? 2 : -1);
+            drawStream(100 + 147, 560, ["r,r,r", "r,r,r", "r,r,r", "..."], "Commands", phase === 1 ? 2 : -1, true);
+            
+            drawStream(450 + 82, 440, ["0,1,2", "0,1,2", "0,1,2", "..."], "Read Address", phase === 3 ? 2 : -1);
+            drawStream(450 + 82, 540, ["r,r,r,s1", "r,r,r,s1", "r,r,r,s1", "..."], "Commands", phase === 3 ? 2 : -1, true);
+            
+            drawStream(280 + 226, 110, ["2,2,2", "1,1,1", "0,0,0", "..."], "Read Address", phase === 4 ? 2 : -1);
+            drawStream(280 + 136, 110, ["2,2,2", "1,1,1", "0,0,0", "..."], "Update Address", phase === 5 ? 2 : -1);
+            drawStream(280 + 227, 270, ["r+u, r+u", "r+u, r+u", "r+u, r+u", "..."], "Commands", (phase === 4 || phase === 5) ? 2 : -1, true);
+
+            drawBuffet(100, 400, 230, 160, "L1 Input Buffet", COLORS.input, [
+                {x:-10, y:70, w:10, h:20, label: "Fill Value"},
+                {x:230, y:70, w:10, h:20, label: "Read Value"},
+                {x:170, y:-10, w:15, h:10, isStreamed: true},
+                {x:140, y:160, w:15, h:10, isStreamed: true}
+            ]);
+            
+            drawBuffet(450, 440, 130, 100, "L0 Input", COLORS.input, [
+                {x:-10, y:30, w:10, h:20},
+                {x:130, y:30, w:10, h:20},
+                {x:75, y:-10, w:15, h:10, isStreamed: true},
+                {x:75, y:100, w:15, h:10, isStreamed: true}
+            ]);
+            
+            drawBuffet(280, 110, 270, 160, "L0 Output Buffet", COLORS.output, [
+                {x:270, y:60, w:10, h:20},
+                {x:220, y:-10, w:12, h:10, isStreamed: true}, 
+                {x:130, y:-10, w:12, h:10, isStreamed: true}, 
+                {x:40, y:-10, w:12, h:10, label: "Update Value"}, 
+                {x:220, y:160, w:15, h:10, isStreamed: true}
+            ]);
+
+            const drawOp = (x, y, s) => {
+                ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI*2);
+                ctx.fillStyle = 'white'; ctx.fill(); ctx.stroke();
+                ctx.fillStyle = COLORS.text; ctx.font = 'bold 16px monospace';
+                ctx.textAlign = 'center'; ctx.fillText(s, x, y + 6);
+            }
+            drawOp(720, 480, "×"); drawOp(720, 180, "+");
+
+            particles.forEach((p, i) => {
+                p.update(); p.draw();
+                if(p.dead) particles.splice(i, 1);
+            });
+            requestAnimationFrame(draw);
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', () => step(1));
+        document.getElementById('prevBtn').addEventListener('click', () => step(-1));
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            cycle = 0; particles = []; isPlaying = false;
+            cycleDisplay.innerText = "000";
+            explanationBox.innerText = "Simulation reset.";
+            document.querySelectorAll('[id^="status-"]').forEach(el => el.classList.remove('step-active'));
+        });
+        document.getElementById('playBtn').addEventListener('click', (e) => {
+            isPlaying = !isPlaying;
+            document.getElementById('playText').innerText = isPlaying ? "Pause" : "Auto";
+            if (isPlaying) playInterval = setInterval(() => step(1), 1200);
+            else clearInterval(playInterval);
+        });
+        draw();
+    </script>
+</body>
+</html>

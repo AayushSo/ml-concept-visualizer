@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strassen's Matrix Multiplication</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']]
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@500&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        canvas {
+            background-color: #1e293b;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            max-width: 100%;
+            max-height: 80vh;
+            object-fit: contain;
+        }
+
+        .controls {
+            background: rgba(30, 41, 59, 0.9);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid #334155;
+            padding: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
+        }
+
+        button {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #2563eb;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+        }
+        
+        .btn-secondary {
+            background: #475569;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #334155;
+        }
+
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="text-center py-6 pb-2">
+        <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+            Strassen's Matrix Multiplication
+        </h1>
+        <p class="text-slate-400 mt-2 max-w-2xl mx-auto px-4 text-sm">
+            An interactive visualization of computing $C = A \times B$ in $O(n^{2.81})$ time. 
+            Strassen's algorithm reduces the number of multiplications for a 2x2 matrix from 8 down to 7.
+        </p>
+    </header>
+
+    <!-- Canvas Container -->
+    <div id="canvas-container">
+        <canvas id="strassenCanvas"></canvas>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <button id="btn-rand" class="btn-secondary px-5 py-2.5 rounded-lg font-medium flex items-center gap-2">
+            <i class="fa-solid fa-dice"></i> Randomize Matrices
+        </button>
+        <div class="h-8 w-px bg-slate-600 mx-2 hidden sm:block"></div>
+        <button id="btn-prev" class="btn-secondary px-5 py-2.5 rounded-lg font-medium flex items-center gap-2">
+            <i class="fa-solid fa-chevron-left"></i> Previous
+        </button>
+        <span id="step-counter" class="text-slate-300 font-medium min-w-[5rem] text-center font-mono">
+            Step 0/12
+        </span>
+        <button id="btn-next" class="btn-primary px-5 py-2.5 rounded-lg font-medium flex items-center gap-2">
+            Next <i class="fa-solid fa-chevron-right"></i>
+        </button>
+        <div class="h-8 w-px bg-slate-600 mx-2 hidden sm:block"></div>
+        <button id="btn-play" class="btn-secondary px-5 py-2.5 rounded-lg font-medium flex items-center gap-2">
+            <i class="fa-solid fa-play" id="play-icon"></i> <span id="play-text">Auto Play</span>
+        </button>
+    </div>
+
+<script>
+    // --- Application State ---
+    const canvas = document.getElementById('strassenCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Virtual resolution for sharp rendering
+    const V_WIDTH = 1200;
+    const V_HEIGHT = 900;
+    
+    let A = [[0,0], [0,0]];
+    let B = [[0,0], [0,0]];
+    let M = [0, 0, 0, 0, 0, 0, 0];
+    let C = [[0,0], [0,0]];
+    
+    let currentStep = 0;
+    let isPlaying = false;
+    let playInterval = null;
+
+    // --- Color Palette ---
+    const colors = {
+        bg: '#1e293b',
+        text: '#f8fafc',
+        textMuted: '#94a3b8',
+        grid: '#334155',
+        A: { base: '#1e3a8a', border: '#3b82f6', text: '#bfdbfe', hl: '#2563eb' }, // Blue
+        B: { base: '#14532d', border: '#22c55e', text: '#bbf7d0', hl: '#16a34a' }, // Green
+        M: { base: '#4c1d95', border: '#a855f7', text: '#e9d5ff', hl: '#7e22ce' }, // Purple
+        C: { base: '#7c2d12', border: '#f97316', text: '#fed7aa', hl: '#ea580c' }, // Orange
+        boxBg: '#0f172a',
+    };
+
+    // --- Steps Definition ---
+    const steps = [
+        {
+            title: "Initialization",
+            desc: "We start with two 2x2 matrices, A and B. Standard multiplication requires 8 multiplications. Strassen's algorithm uses 7 intermediate matrices (M₁ - M₇) to find the result.",
+            eq: "",
+            hA: [], hB: [], hM: [], hC: [],
+            showM: -1, showC: -1
+        },
+        {
+            title: "Calculate M₁",
+            desc: "M₁ is the product of the sum of main diagonals of A and B.",
+            eq: "M₁ = (A₁₁ + A₂₂) × (B₁₁ + B₂₂)",
+            hA: [[0,0], [1,1]], hB: [[0,0], [1,1]], hM: [0], hC: [],
+            showM: 0, showC: -1,
+            valEq: () => `M₁ = (${A[0][0]} + ${A[1][1]}) × (${B[0][0]} + ${B[1][1]}) = ${M[0]}`
+        },
+        {
+            title: "Calculate M₂",
+            desc: "M₂ uses the bottom row of A and the top-left of B.",
+            eq: "M₂ = (A₂₁ + A₂₂) × B₁₁",
+            hA: [[1,0], [1,1]], hB: [[0,0]], hM: [1], hC: [],
+            showM: 1, showC: -1,
+            valEq: () => `M₂ = (${A[1][0]} + ${A[1][1]}) × ${B[0][0]} = ${M[1]}`
+        },
+        {
+            title: "Calculate M₃",
+            desc: "M₃ uses the top-left of A and the right column of B.",
+            eq: "M₃ = A₁₁ × (B₁₂ - B₂₂)",
+            hA: [[0,0]], hB: [[0,1], [1,1]], hM: [2], hC: [],
+            showM: 2, showC: -1,
+            valEq: () => `M₃ = ${A[0][0]} × (${B[0][1]} - ${B[1][1]}) = ${M[2]}`
+        },
+        {
+            title: "Calculate M₄",
+            desc: "M₄ uses the bottom-right of A and the left column of B.",
+            eq: "M₄ = A₂₂ × (B₂₁ - B₁₁)",
+            hA: [[1,1]], hB: [[1,0], [0,0]], hM: [3], hC: [],
+            showM: 3, showC: -1,
+            valEq: () => `M₄ = ${A[1][1]} × (${B[1][0]} - ${B[0][0]}) = ${M[3]}`
+        },
+        {
+            title: "Calculate M₅",
+            desc: "M₅ uses the top row of A and the bottom-right of B.",
+            eq: "M₅ = (A₁₁ + A₁₂) × B₂₂",
+            hA: [[0,0], [0,1]], hB: [[1,1]], hM: [4], hC: [],
+            showM: 4, showC: -1,
+            valEq: () => `M₅ = (${A[0][0]} + ${A[0][1]}) × ${B[1][1]} = ${M[4]}`
+        },
+        {
+            title: "Calculate M₆",
+            desc: "M₆ uses the difference of left column of A and top row of B.",
+            eq: "M₆ = (A₂₁ - A₁₁) × (B₁₁ + B₁₂)",
+            hA: [[1,0], [0,0]], hB: [[0,0], [0,1]], hM: [5], hC: [],
+            showM: 5, showC: -1,
+            valEq: () => `M₆ = (${A[1][0]} - ${A[0][0]}) × (${B[0][0]} + ${B[0][1]}) = ${M[5]}`
+        },
+        {
+            title: "Calculate M₇",
+            desc: "M₇ uses the difference of right column of A and bottom row of B.",
+            eq: "M₇ = (A₁₂ - A₂₂) × (B₂₁ + B₂₂)",
+            hA: [[0,1], [1,1]], hB: [[1,0], [1,1]], hM: [6], hC: [],
+            showM: 6, showC: -1,
+            valEq: () => `M₇ = (${A[0][1]} - ${A[1][1]}) × (${B[1][0]} + ${B[1][1]}) = ${M[6]}`
+        },
+        {
+            title: "Combine to find C₁₁",
+            desc: "Now we assemble the final matrix C using the 7 M matrices.",
+            eq: "C₁₁ = M₁ + M₄ - M₅ + M₇",
+            hA: [], hB: [], hM: [0, 3, 4, 6], hC: [[0,0]],
+            showM: 6, showC: 0,
+            valEq: () => `C₁₁ = ${M[0]} + ${M[3]} - ${M[4]} + ${M[6]} = ${C[0][0]}`
+        },
+        {
+            title: "Combine to find C₁₂",
+            desc: "Calculating the top-right element of C.",
+            eq: "C₁₂ = M₃ + M₅",
+            hA: [], hB: [], hM: [2, 4], hC: [[0,1]],
+            showM: 6, showC: 1,
+            valEq: () => `C₁₂ = ${M[2]} + ${M[4]} = ${C[0][1]}`
+        },
+        {
+            title: "Combine to find C₂₁",
+            desc: "Calculating the bottom-left element of C.",
+            eq: "C₂₁ = M₂ + M₄",
+            hA: [], hB: [], hM: [1, 3], hC: [[1,0]],
+            showM: 6, showC: 2,
+            valEq: () => `C₂₁ = ${M[1]} + ${M[3]} = ${C[1][0]}`
+        },
+        {
+            title: "Combine to find C₂₂",
+            desc: "Calculating the bottom-right element of C.",
+            eq: "C₂₂ = M₁ - M₂ + M₃ + M₆",
+            hA: [], hB: [], hM: [0, 1, 2, 5], hC: [[1,1]],
+            showM: 6, showC: 3,
+            valEq: () => `C₂₂ = ${M[0]} - ${M[1]} + ${M[2]} + ${M[5]} = ${C[1][1]}`
+        },
+        {
+            title: "Algorithm Complete",
+            desc: "We successfully multiplied A and B using only 7 multiplications! This recursive approach saves time for very large matrices.",
+            eq: "C = A × B",
+            hA: [], hB: [], hM: [], hC: [[0,0], [0,1], [1,0], [1,1]],
+            showM: 6, showC: 4,
+            valEq: () => ""
+        }
+    ];
+
+    // --- Core Logic ---
+    function randomizeMatrices() {
+        for(let r=0; r<2; r++) {
+            for(let c=0; c<2; c++) {
+                A[r][c] = Math.floor(Math.random() * 10) - 4; // -4 to 5
+                B[r][c] = Math.floor(Math.random() * 10) - 4;
+            }
+        }
+        calculateStrassen();
+        currentStep = 0;
+        updateUI();
+        draw();
+    }
+
+    function calculateStrassen() {
+        // M1 = (A11 + A22) * (B11 + B22)
+        M[0] = (A[0][0] + A[1][1]) * (B[0][0] + B[1][1]);
+        // M2 = (A21 + A22) * B11
+        M[1] = (A[1][0] + A[1][1]) * B[0][0];
+        // M3 = A11 * (B12 - B22)
+        M[2] = A[0][0] * (B[0][1] - B[1][1]);
+        // M4 = A22 * (B21 - B11)
+        M[3] = A[1][1] * (B[1][0] - B[0][0]);
+        // M5 = (A11 + A12) * B22
+        M[4] = (A[0][0] + A[0][1]) * B[1][1];
+        // M6 = (A21 - A11) * (B11 + B12)
+        M[5] = (A[1][0] - A[0][0]) * (B[0][0] + B[0][1]);
+        // M7 = (A12 - A22) * (B21 + B22)
+        M[6] = (A[0][1] - A[1][1]) * (B[1][0] + B[1][1]);
+
+        // C11 = M1 + M4 - M5 + M7
+        C[0][0] = M[0] + M[3] - M[4] + M[6];
+        // C12 = M3 + M5
+        C[0][1] = M[2] + M[4];
+        // C21 = M2 + M4
+        C[1][0] = M[1] + M[3];
+        // C22 = M1 - M2 + M3 + M6
+        C[1][1] = M[0] - M[1] + M[2] + M[5];
+    }
+
+    // --- Drawing Functions ---
+    function resizeCanvas() {
+        const container = document.getElementById('canvas-container');
+        const containerWidth = container.clientWidth - 40; 
+        const containerHeight = Math.min(window.innerHeight * 0.7, 800);
+        
+        // Maintain aspect ratio
+        const scale = Math.min(containerWidth / V_WIDTH, containerHeight / V_HEIGHT);
+        
+        canvas.width = V_WIDTH * window.devicePixelRatio;
+        canvas.height = V_HEIGHT * window.devicePixelRatio;
+        
+        canvas.style.width = `${V_WIDTH * scale}px`;
+        canvas.style.height = `${V_HEIGHT * scale}px`;
+        
+        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        draw();
+    }
+
+    function drawRoundedRect(x, y, w, h, radius, fill, stroke) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + w - radius, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+        ctx.lineTo(x + w, y + h - radius);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+        ctx.lineTo(x + radius, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        
+        if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+        }
+        if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+    }
+
+    function drawRichText(text, x, y, fontSize, align = "center") {
+        ctx.font = `bold ${fontSize}px 'Fira Code'`;
+        // Split by variables like A₁₁, B₂₂, M₁, C₁₁
+        const parts = text.split(/([ABC][₁₂][₁₂]?|M[₁-₇])/g);
+        
+        let totalWidth = 0;
+        const renderedParts = parts.filter(p => p !== undefined).map(part => {
+            let color = colors.text;
+            if (part.startsWith('A')) color = colors.A.border;
+            else if (part.startsWith('B')) color = colors.B.border;
+            else if (part.startsWith('M')) color = colors.M.border;
+            else if (part.startsWith('C')) color = colors.C.border;
+            
+            ctx.fillStyle = color;
+            const width = ctx.measureText(part).width;
+            totalWidth += width;
+            return { text: part, color, width };
+        });
+
+        let currentX = x;
+        if (align === "center") currentX -= totalWidth / 2;
+        else if (align === "right") currentX -= totalWidth;
+
+        renderedParts.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.fillText(p.text, currentX, y);
+            currentX += p.width;
+        });
+    }
+
+    function drawFormulaReference() {
+        const x = V_WIDTH - 260;
+        const y = 50;
+        const w = 240;
+        const h = 700;
+
+        drawRoundedRect(x, y, w, h, 16, colors.boxBg, colors.grid);
+
+        ctx.font = "bold 18px 'Inter'";
+        ctx.fillStyle = colors.text;
+        ctx.textAlign = "center";
+        ctx.fillText("Formula Reference", x + w/2, y + 35);
+
+        ctx.textAlign = "left";
+        ctx.font = "13px 'Fira Code'";
+
+        // M Formulas
+        let currentY = y + 70;
+        ctx.fillStyle = colors.M.border;
+        ctx.fillText("Intermediate (M):", x + 15, currentY);
+        currentY += 25;
+
+        const mFormulas = [
+            "M₁=(A₁₁+A₂₂)×(B₁₁+B₂₂)",
+            "M₂=(A₂₁+A₂₂)×B₁₁",
+            "M₃=A₁₁×(B₁₂-B₂₂)",
+            "M₄=A₂₂×(B₂₁-B₁₁)",
+            "M₅=(A₁₁+A₁₂)×B₂₂",
+            "M₆=(A₂₁-A₁₁)×(B₁₁+B₁₂)",
+            "M₇=(A₁₂-A₂₂)×(B₂₁+B₂₂)"
+        ];
+
+        mFormulas.forEach((f, i) => {
+            const isCurrent = (currentStep >= 1 && currentStep <= 7 && currentStep === i + 1);
+            const isDone = currentStep > i + 1;
+            
+            if (isCurrent) {
+                ctx.fillStyle = colors.M.hl;
+                ctx.fillRect(x + 5, currentY - 18, w - 10, 24);
+                ctx.fillStyle = "#ffffff";
+            } else if (isDone) {
+                ctx.fillStyle = colors.M.text;
+            } else {
+                ctx.fillStyle = colors.textMuted;
+            }
+            ctx.fillText(f, x + 15, currentY);
+            currentY += 24;
+        });
+
+        // C Formulas
+        currentY += 20;
+        ctx.fillStyle = colors.C.border;
+        ctx.fillText("Result (C):", x + 15, currentY);
+        currentY += 25;
+
+        const cFormulas = [
+            "C₁₁=M₁+M₄-M₅+M₇",
+            "C₁₂=M₃+M₅",
+            "C₂₁=M₂+M₄",
+            "C₂₂=M₁-M₂+M₃+M₆"
+        ];
+
+        cFormulas.forEach((f, i) => {
+            const isCurrent = (currentStep >= 8 && currentStep <= 11 && currentStep === i + 8);
+            const isDone = currentStep > i + 8;
+
+            if (isCurrent) {
+                ctx.fillStyle = colors.C.hl;
+                ctx.fillRect(x + 5, currentY - 18, w - 10, 24);
+                ctx.fillStyle = "#ffffff";
+            } else if (isDone) {
+                ctx.fillStyle = colors.C.text;
+            } else {
+                ctx.fillStyle = colors.textMuted;
+            }
+            ctx.fillText(f, x + 15, currentY);
+            currentY += 24;
+        });
+    }
+
+    function drawMatrix(matrixData, startX, startY, labelPrefix, colorTheme, highlights, showCount = 4) {
+        const cellSize = 80;
+        const padding = 10;
+        const totalSize = (cellSize * 2) + padding;
+
+        // Draw Matrix Label
+        ctx.font = "bold 24px 'Inter'";
+        ctx.fillStyle = colors.text;
+        ctx.textAlign = "center";
+        ctx.fillText(`Matrix ${labelPrefix.charAt(0)}`, startX + totalSize/2, startY - 20);
+
+        // Draw Brackets
+        ctx.strokeStyle = colors.textMuted;
+        ctx.lineWidth = 4;
+        const bMargin = 15;
+        // Left bracket
+        ctx.beginPath();
+        ctx.moveTo(startX - bMargin + 10, startY);
+        ctx.lineTo(startX - bMargin, startY);
+        ctx.lineTo(startX - bMargin, startY + totalSize);
+        ctx.lineTo(startX - bMargin + 10, startY + totalSize);
+        ctx.stroke();
+        // Right bracket
+        ctx.beginPath();
+        ctx.moveTo(startX + totalSize + bMargin - 10, startY);
+        ctx.lineTo(startX + totalSize + bMargin, startY);
+        ctx.lineTo(startX + totalSize + bMargin, startY + totalSize);
+        ctx.lineTo(startX + totalSize + bMargin - 10, startY + totalSize);
+        ctx.stroke();
+
+        let cellIndex = 0;
+        for(let r=0; r<2; r++) {
+            for(let c=0; c<2; c++) {
+                const x = startX + c * (cellSize + padding);
+                const y = startY + r * (cellSize + padding);
+                
+                const isHighlighted = highlights.some(hl => hl[0] === r && hl[1] === c);
+                const isShown = cellIndex < showCount;
+                
+                const bg = isHighlighted ? colorTheme.hl : colorTheme.base;
+                
+                drawRoundedRect(x, y, cellSize, cellSize, 12, bg, colorTheme.border);
+                
+                // Draw Inner Label (e.g., A₁₁)
+                ctx.font = "500 14px 'Inter'";
+                ctx.fillStyle = isHighlighted ? '#ffffff' : colorTheme.text;
+                ctx.textAlign = "left";
+                const subscriptMap = {"00": "₁₁", "01": "₁₂", "10": "₂₁", "11": "₂₂"};
+                ctx.fillText(`${labelPrefix.charAt(0)}${subscriptMap[""+r+c]}`, x + 8, y + 22);
+
+                // Draw Value
+                if (isShown) {
+                    ctx.font = "bold 32px 'Fira Code'";
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(matrixData[r][c], x + cellSize/2, y + cellSize/2 + 5);
+                }
+                ctx.textBaseline = "alphabetic"; // reset
+                cellIndex++;
+            }
+        }
+    }
+
+    function drawMArray(startX, startY, highlights, showUpTo) {
+        const cellSize = 70;
+        const padding = 20;
+        const totalWidth = 7 * cellSize + 6 * padding;
+        const startXAdjusted = startX - totalWidth / 2;
+
+        ctx.font = "bold 20px 'Inter'";
+        ctx.fillStyle = colors.text;
+        ctx.textAlign = "center";
+        ctx.fillText("Intermediate Matrices (M₁ to M₇)", startX, startY - 25);
+
+        for (let i = 0; i < 7; i++) {
+            const x = startXAdjusted + i * (cellSize + padding);
+            const isHighlighted = highlights.includes(i);
+            const isShown = i <= showUpTo;
+
+            const bg = isHighlighted ? colors.M.hl : colors.M.base;
+            drawRoundedRect(x, startY, cellSize, cellSize, 12, bg, colors.M.border);
+
+            ctx.font = "500 14px 'Inter'";
+            ctx.fillStyle = isHighlighted ? '#ffffff' : colors.M.text;
+            ctx.textAlign = "left";
+            const subs = ["₁", "₂", "₃", "₄", "₅", "₆", "₇"];
+            ctx.fillText(`M${subs[i]}`, x + 8, startY + 20);
+
+            if (isShown) {
+                ctx.font = "bold 28px 'Fira Code'";
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(M[i], x + cellSize/2, startY + cellSize/2 + 5);
+            }
+            ctx.textBaseline = "alphabetic";
+        }
+    }
+
+    function drawCenterPanel(stepData) {
+        const panelW = 800;
+        const panelH = 180;
+        const x = V_WIDTH / 2 - panelW / 2;
+        const y = 280;
+
+        drawRoundedRect(x, y, panelW, panelH, 16, colors.boxBg, colors.grid);
+
+        ctx.textAlign = "center";
+        
+        // Title
+        ctx.font = "bold 24px 'Inter'";
+        ctx.fillStyle = '#60a5fa'; // Blue 400
+        ctx.fillText(stepData.title, V_WIDTH / 2, y + 40);
+
+        // Description
+        ctx.font = "16px 'Inter'";
+        ctx.fillStyle = colors.textMuted;
+        
+        // Word wrap description
+        const words = stepData.desc.split(' ');
+        let line = '';
+        let lineY = y + 75;
+        for(let n = 0; n < words.length; n++) {
+            let testLine = line + words[n] + ' ';
+            let metrics = ctx.measureText(testLine);
+            if(metrics.width > panelW - 60 && n > 0) {
+                ctx.fillText(line, V_WIDTH / 2, lineY);
+                line = words[n] + ' ';
+                lineY += 24;
+            } else {
+                line = testLine;
+            }
+        }
+        ctx.fillText(line, V_WIDTH / 2, lineY);
+
+        // Equation
+        if (stepData.eq) {
+            drawRichText(stepData.eq, V_WIDTH / 2, y + 130, 26);
+        }
+
+        // Value Equation
+        if (stepData.valEq) {
+            ctx.font = "18px 'Fira Code'";
+            ctx.fillStyle = '#a7f3d0'; // Emerald 200
+            ctx.fillText(stepData.valEq(), V_WIDTH / 2, y + 160);
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, V_WIDTH, V_HEIGHT);
+        
+        // Background dot pattern
+        ctx.fillStyle = colors.grid;
+        for(let i = 0; i < V_WIDTH; i += 40) {
+            for(let j = 0; j < V_HEIGHT; j += 40) {
+                ctx.beginPath();
+                ctx.arc(i, j, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        const stepData = steps[currentStep];
+
+        // Draw Matrices A & B
+        drawMatrix(A, V_WIDTH/2 - 300, 50, "A", colors.A, stepData.hA);
+        
+        // Multiplication Sign
+        ctx.font = "bold 40px 'Inter'";
+        ctx.fillStyle = colors.textMuted;
+        ctx.textAlign = "center";
+        ctx.fillText("×", V_WIDTH/2, 140);
+
+        drawMatrix(B, V_WIDTH/2 + 130, 50, "B", colors.B, stepData.hB);
+
+        // Draw Center Info Panel
+        drawCenterPanel(stepData);
+
+        // Draw M Array
+        drawMArray(V_WIDTH/2, 530, stepData.hM, stepData.showM);
+
+        // Draw Formula Reference
+        drawFormulaReference();
+
+        // Draw C Matrix if we are at step 8+
+        if (currentStep >= 8) {
+            drawMatrix(C, V_WIDTH/2 - 85, 650, "C (Result)", colors.C, stepData.hC, stepData.showC + 1);
+        }
+    }
+
+    // --- Interactivity ---
+    function updateUI() {
+        document.getElementById('step-counter').innerText = `Step ${currentStep}/${steps.length - 1}`;
+        
+        document.getElementById('btn-prev').classList.toggle('btn-disabled', currentStep === 0);
+        document.getElementById('btn-next').classList.toggle('btn-disabled', currentStep === steps.length - 1);
+        
+        const playBtn = document.getElementById('btn-play');
+        const playIcon = document.getElementById('play-icon');
+        const playText = document.getElementById('play-text');
+
+        if (isPlaying) {
+            playIcon.className = "fa-solid fa-pause";
+            playText.innerText = "Pause";
+            playBtn.classList.add("bg-purple-600");
+            playBtn.classList.remove("bg-slate-600");
+        } else {
+            playIcon.className = "fa-solid fa-play";
+            playText.innerText = "Auto Play";
+            playBtn.classList.remove("bg-purple-600");
+            playBtn.classList.add("bg-slate-600");
+        }
+    }
+
+    function nextStep() {
+        if (currentStep < steps.length - 1) {
+            currentStep++;
+            updateUI();
+            draw();
+        } else if (isPlaying) {
+            togglePlay(); // Auto-stop at the end
+        }
+    }
+
+    function prevStep() {
+        if (currentStep > 0) {
+            currentStep--;
+            updateUI();
+            draw();
+        }
+    }
+
+    function togglePlay() {
+        isPlaying = !isPlaying;
+        updateUI();
+        if (isPlaying) {
+            if (currentStep === steps.length - 1) {
+                currentStep = 0; // Restart if at end
+                draw();
+            }
+            playInterval = setInterval(nextStep, 2500); // 2.5s per step
+        } else {
+            clearInterval(playInterval);
+        }
+    }
+
+    // --- Event Listeners ---
+    document.getElementById('btn-next').addEventListener('click', () => {
+        if(isPlaying) togglePlay();
+        nextStep();
+    });
+    document.getElementById('btn-prev').addEventListener('click', () => {
+        if(isPlaying) togglePlay();
+        prevStep();
+    });
+    document.getElementById('btn-rand').addEventListener('click', randomizeMatrices);
+    document.getElementById('btn-play').addEventListener('click', togglePlay);
+    
+    window.addEventListener('resize', resizeCanvas);
+
+    // --- Initialization ---
+    randomizeMatrices();
+    resizeCanvas(); // This triggers the initial draw
+</script>
+</body>
+</html>

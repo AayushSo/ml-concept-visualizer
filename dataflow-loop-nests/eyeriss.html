@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eyeriss Row-Stationary Visualization</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .pe-box {
+            transition: all 0.3s ease;
+        }
+        .data-particle {
+            pointer-events: none;
+            /* Slower transition for better visibility: 1.2s */
+            transition: transform 1.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s;
+        }
+        @keyframes processing-pulse {
+            0% { background-color: #f8fafc; border-color: #cbd5e1; }
+            50% { background-color: #fefce8; border-color: #eab308; box-shadow: 0 0 15px rgba(234, 179, 8, 0.3); }
+            100% { background-color: #fffbeb; border-color: #f59e0b; }
+        }
+        .highlight-pe {
+            animation: processing-pulse 0.8s ease forwards;
+        }
+        .row-vector {
+            display: flex;
+            gap: 2px;
+        }
+        .row-element {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        /* Matrix Grid Styles */
+        .matrix-grid {
+            display: grid;
+            gap: 2px;
+        }
+        .matrix-cell {
+            width: 8px;
+            height: 8px;
+            border: 1px solid #cbd5e1;
+            background-color: transparent;
+            transition: background-color 0.3s;
+        }
+        .matrix-cell.filter-active { background-color: #22c55e; border-color: #16a34a; }
+        .matrix-cell.input-active { background-color: #3b82f6; border-color: #2563eb; }
+        .matrix-cell.output-active { background-color: #ef4444; border-color: #dc2626; }
+        
+        .psum-indicator {
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: scale(0);
+        }
+        .psum-active {
+            transform: scale(1);
+            opacity: 1 !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col items-center p-4 font-sans text-slate-800">
+
+    <div class="max-w-6xl w-full bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col border border-slate-200">
+        <!-- Header -->
+        <div class="bg-slate-900 text-white p-6">
+            <h1 class="text-2xl font-bold">Eyeriss: Row-Stationary Vector Dataflow</h1>
+            <p class="text-slate-400 mt-1">Visualizing 1D vector processing inside the 2D spatial array.</p>
+        </div>
+
+        <div class="flex flex-col md:flex-row flex-1">
+            <!-- Left: Controls & Legend -->
+            <div class="p-6 bg-slate-100 md:w-80 border-r border-slate-200 flex flex-col">
+                <div class="mb-4">
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">Current Phase</h2>
+                    <!-- Fixed height to prevent buttons below from jumping -->
+                    <div id="step-description" class="bg-white p-4 rounded-lg border border-slate-200 text-sm leading-relaxed shadow-sm h-[220px] overflow-y-auto">
+                        Click "Next Step" to see how rows of data are mapped to the PEs.
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="flex gap-2">
+                        <button id="prev-btn" class="flex-1 py-3 px-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold transition disabled:opacity-30 disabled:cursor-not-allowed">
+                            Back
+                        </button>
+                        <button id="next-btn" class="flex-[2] py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition shadow-lg flex items-center justify-center gap-2 disabled:opacity-50">
+                            <span>Next Step</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                    <button id="reset-btn" class="w-full py-2 px-4 border border-slate-300 hover:bg-slate-200 rounded-xl font-medium transition text-slate-600">
+                        Reset Simulation
+                    </button>
+                </div>
+
+                <div class="mt-8">
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">Legend</h2>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-3">
+                            <div class="row-vector">
+                                <div class="row-element bg-green-500"></div><div class="row-element bg-green-500"></div><div class="row-element bg-green-500"></div>
+                            </div>
+                            <span class="text-xs font-medium">Filter Weight (Stationary)</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="row-vector">
+                                <div class="row-element bg-blue-500"></div><div class="row-element bg-blue-500"></div><div class="row-element bg-blue-500"></div>
+                            </div>
+                            <span class="text-xs font-medium">Input Activation Row</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-4 h-4 bg-red-500 rounded border border-red-700"></div>
+                            <span class="text-xs font-medium">Partial Sum (Result of Math)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Grid Area -->
+            <div class="flex-1 p-8 bg-white relative flex flex-col items-center justify-start min-h-[850px] pt-12">
+                
+                <!-- Output Area (TOP) - Reserved space ensures layout doesn't shift -->
+                <div id="output-area" class="mb-12 flex gap-24 h-24 items-center">
+                    <div class="flex flex-col items-center opacity-0 transition-opacity duration-500" id="res-1">
+                        <div class="bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase mb-2">Row 1</div>
+                        <div class="w-10 h-10 bg-red-500 border-2 border-red-700 rounded-lg flex items-center justify-center font-bold text-white shadow-md text-xs">O1</div>
+                    </div>
+                    <div class="flex flex-col items-center opacity-0 transition-opacity duration-500" id="res-2">
+                        <div class="bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase mb-2">Row 2</div>
+                        <div class="w-10 h-10 bg-red-500 border-2 border-red-700 rounded-lg flex items-center justify-center font-bold text-white shadow-md text-xs">O2</div>
+                    </div>
+                    <div class="flex flex-col items-center opacity-0 transition-opacity duration-500" id="res-3">
+                        <div class="bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase mb-2">Row 3</div>
+                        <div class="w-10 h-10 bg-red-500 border-2 border-red-700 rounded-lg flex items-center justify-center font-bold text-white shadow-md text-xs">O3</div>
+                    </div>
+                </div>
+
+                <!-- Main Grid - Fixed Height -->
+                <div id="pe-grid" class="grid grid-cols-3 gap-x-16 gap-y-12 relative h-[450px]">
+                    <!-- Generation of PEs via JS -->
+                </div>
+
+                <!-- Matrix Mapping Section - Locked at the bottom -->
+                <div class="mt-auto grid grid-cols-3 gap-x-12 w-full max-w-3xl border-t border-slate-100 pt-8 pb-8">
+                    <div class="flex flex-col items-center gap-2">
+                        <div class="flex items-center gap-1">
+                            <div id="m1-f" class="matrix-grid grid-cols-3"></div>
+                            <span class="text-xs font-bold text-slate-400">*</span>
+                            <div id="m1-i" class="matrix-grid grid-cols-5"></div>
+                            <span class="text-xs font-bold text-slate-400">=</span>
+                            <div id="m1-o" class="matrix-grid grid-cols-3"></div>
+                        </div>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Col 1 Data</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-2">
+                        <div class="flex items-center gap-1">
+                            <div id="m2-f" class="matrix-grid grid-cols-3"></div>
+                            <span class="text-xs font-bold text-slate-400">*</span>
+                            <div id="m2-i" class="matrix-grid grid-cols-5"></div>
+                            <span class="text-xs font-bold text-slate-400">=</span>
+                            <div id="m2-o" class="matrix-grid grid-cols-3"></div>
+                        </div>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Col 2 Data</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-2">
+                        <div class="flex items-center gap-1">
+                            <div id="m3-f" class="matrix-grid grid-cols-3"></div>
+                            <span class="text-xs font-bold text-slate-400">*</span>
+                            <div id="m3-i" class="matrix-grid grid-cols-5"></div>
+                            <span class="text-xs font-bold text-slate-400">=</span>
+                            <div id="m3-o" class="matrix-grid grid-cols-3"></div>
+                        </div>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Col 3 Data</span>
+                    </div>
+                </div>
+
+                <div class="absolute inset-0 pointer-events-none" id="flow-layer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const stepDesc = document.getElementById('step-description');
+        const nextBtn = document.getElementById('next-btn');
+        const prevBtn = document.getElementById('prev-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const flowLayer = document.getElementById('flow-layer');
+        const grid = document.getElementById('pe-grid');
+
+        let currentStep = 0;
+        const totalSteps = 6;
+
+        const peConfigs = [
+            { id: 1, w: 1, i: 1 }, { id: 2, w: 2, i: 2 }, { id: 3, w: 3, i: 3 }, // Column 1
+            { id: 4, w: 1, i: 2 }, { id: 5, w: 2, i: 3 }, { id: 6, w: 3, i: 4 }, // Column 2
+            { id: 7, w: 1, i: 3 }, { id: 8, w: 2, i: 4 }, { id: 9, w: 3, i: 5 }  // Column 3
+        ];
+
+        function initGrid() {
+            grid.innerHTML = '';
+            const colsArr = [peConfigs.slice(0,3), peConfigs.slice(3,6), peConfigs.slice(6,9)];
+            
+            colsArr.forEach(col => {
+                const colDiv = document.createElement('div');
+                colDiv.className = 'flex flex-col gap-12';
+                col.forEach(config => {
+                    colDiv.innerHTML += `
+                        <div id="pe-${config.id}" class="pe-box w-44 h-24 border-2 border-slate-200 rounded-xl flex flex-col items-center justify-center relative bg-white shadow-sm p-2">
+                            <span class="absolute -top-7 text-[10px] font-bold text-slate-400 uppercase tracking-tighter bg-white px-1">PE ${config.id}</span>
+                            <div class="flex items-center gap-2">
+                                <div id="pe${config.id}-w" class="pe-data opacity-0 transition-opacity">
+                                    <div class="row-vector">
+                                        <div class="row-element bg-green-500"></div><div class="row-element bg-green-500"></div><div class="row-element bg-green-500"></div>
+                                    </div>
+                                    <div class="text-[7px] text-center font-bold text-green-700 mt-1">Row ${config.w}</div>
+                                </div>
+                                <span class="text-xs text-slate-300 font-bold">*</span>
+                                <div id="pe${config.id}-i" class="pe-data opacity-0 transition-opacity">
+                                    <div class="row-vector">
+                                        <div class="row-element bg-blue-500"></div><div class="row-element bg-blue-500"></div><div class="row-element bg-blue-500"></div>
+                                    </div>
+                                    <div class="text-[7px] text-center font-bold text-blue-700 mt-1">Row ${config.i}</div>
+                                </div>
+                            </div>
+                            <div id="psum-${config.id}" class="psum-indicator opacity-0 absolute -bottom-3 right-2 flex flex-col items-center">
+                                <div class="w-6 h-6 bg-red-500 border border-red-700 rounded shadow-sm flex items-center justify-center text-[8px] text-white font-bold">∑</div>
+                                <span class="text-[6px] font-black text-red-600 uppercase">P-Sum</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                grid.appendChild(colDiv);
+            });
+        }
+
+        const steps = [
+            {
+                title: "Initial State",
+                text: "The array is ready. Notice that <b>Final Output</b> is now at the top, consistent with the Row-Stationary architecture.",
+                action: () => {}
+            },
+            {
+                title: "1. Filter Row Mapping",
+                text: "Weight rows are loaded into local PE buffers. Rows 1, 2, and 3 of the filter are distributed vertically across each column.",
+                action: loadWeightRows
+            },
+            {
+                title: "2. Input Row Injection",
+                text: "Input rows slide in. For Column 1, we map Input Rows 1, 2, 3. For Column 2, we shift to Rows 2, 3, 4 to perform the sliding window convolution.",
+                action: loadInputRows
+            },
+            {
+                title: "3. Generating Partial Results",
+                text: "Multiplication happens concurrently. Each PE generates a <b>Partial Sum (∑)</b>. This result is held locally before moving to the accumulation phase.",
+                action: highlightProcessing
+            },
+            {
+                title: "4. Vertical Accumulation (Flowing UP)",
+                text: "Results from the bottom PEs flow <b>UP</b> to be added to the PE above. This builds the complete 2D convolution result without leaving the chip.<br><br>*(Animation slowed for clarity)*",
+                action: verticalFlow
+            },
+            {
+                title: "5. Final Output Emission",
+                text: "The top row (PE 1, 4, 7) emits the finalized output rows. The red cells in the output matrices represent the completed result.",
+                action: showFinalResults
+            }
+        ];
+
+        function initMatrixDisplay() {
+            const containers = [{ f: 'm1-f', i: 'm1-i', o: 'm1-o' }, { f: 'm2-f', i: 'm2-i', o: 'm2-o' }, { f: 'm3-f', i: 'm3-i', o: 'm3-o' }];
+            containers.forEach(group => {
+                document.getElementById(group.f).innerHTML = '';
+                document.getElementById(group.i).innerHTML = '';
+                document.getElementById(group.o).innerHTML = '';
+                for (let r = 0; r < 9; r++) document.getElementById(group.f).innerHTML += `<div class="matrix-cell f-cell-${r}"></div>`;
+                for (let r = 0; r < 25; r++) document.getElementById(group.i).innerHTML += `<div class="matrix-cell i-cell-${r}"></div>`;
+                for (let r = 0; r < 9; r++) document.getElementById(group.o).innerHTML += `<div class="matrix-cell o-cell-${r}"></div>`;
+            });
+        }
+
+        function setMatrixActive(groupId, type, rows) {
+            const cells = document.getElementById(`${groupId}-${type}`).querySelectorAll('.matrix-cell');
+            const cols = type === 'i' ? 5 : 3;
+            cells.forEach((cell, idx) => {
+                const row = Math.floor(idx / cols);
+                if (rows.includes(row)) cell.classList.add(`${type === 'f' ? 'filter' : type === 'i' ? 'input' : 'output'}-active`);
+                else cell.classList.remove(`${type === 'f' ? 'filter' : type === 'i' ? 'input' : 'output'}-active`);
+            });
+        }
+
+        function createParticle(colorClass, x, y, width=12, height=12) {
+            const p = document.createElement('div');
+            p.className = `data-particle absolute ${colorClass} z-50 rounded shadow-sm border border-black/10`;
+            p.style.width = width + 'px'; p.style.height = height + 'px';
+            p.style.left = x + 'px'; p.style.top = y + 'px';
+            flowLayer.appendChild(p);
+            return p;
+        }
+
+        function loadWeightRows() {
+            setMatrixActive('m1', 'f', [0, 1, 2]); setMatrixActive('m2', 'f', [0, 1, 2]); setMatrixActive('m3', 'f', [0, 1, 2]);
+            peConfigs.forEach((config, i) => {
+                const peW = document.getElementById(`pe${config.id}-w`);
+                const rect = peW.getBoundingClientRect();
+                const gridRect = flowLayer.getBoundingClientRect();
+                const p = createParticle('bg-green-500', -60, rect.top - gridRect.top + 5, 30, 10);
+                setTimeout(() => { p.style.transform = `translate(${rect.left - gridRect.left + 60}px, 0)`; }, 80 * i);
+                setTimeout(() => { peW.classList.remove('opacity-0'); p.style.opacity = '0'; setTimeout(() => p.remove(), 400); }, 1300 + (80 * i));
+            });
+        }
+
+        function loadInputRows() {
+            setMatrixActive('m1', 'i', [0, 1, 2]); setMatrixActive('m2', 'i', [1, 2, 3]); setMatrixActive('m3', 'i', [2, 3, 4]);
+            peConfigs.forEach((config, i) => {
+                const peI = document.getElementById(`pe${config.id}-i`);
+                const rect = peI.getBoundingClientRect();
+                const gridRect = flowLayer.getBoundingClientRect();
+                const p = createParticle('bg-blue-500', gridRect.width + 60, rect.top - gridRect.top + 5, 30, 10);
+                setTimeout(() => { p.style.transform = `translate(-${gridRect.width - (rect.left - gridRect.left) + 60}px, 0)`; }, 120 * i);
+                setTimeout(() => { peI.classList.remove('opacity-0'); p.style.opacity = '0'; setTimeout(() => p.remove(), 400); }, 1300 + (120 * i));
+            });
+        }
+
+        function highlightProcessing() {
+            peConfigs.forEach((config, i) => {
+                const pe = document.getElementById(`pe-${config.id}`);
+                const psum = document.getElementById(`psum-${config.id}`);
+                setTimeout(() => {
+                    pe.classList.add('highlight-pe');
+                    setTimeout(() => { psum.classList.add('psum-active'); }, 500);
+                }, i * 150);
+            });
+        }
+
+        function verticalFlow() {
+            const columnPaths = [[3, 2, 1], [6, 5, 4], [9, 8, 7]];
+            columnPaths.forEach((path, colIdx) => {
+                path.forEach((peId, idx) => {
+                    if (idx === path.length - 1) return;
+                    const fromPe = document.getElementById(`pe-${peId}`);
+                    const toPe = document.getElementById(`pe-${path[idx+1]}`);
+                    const fromRect = fromPe.getBoundingClientRect();
+                    const toRect = toPe.getBoundingClientRect();
+                    const gridRect = flowLayer.getBoundingClientRect();
+                    
+                    setTimeout(() => {
+                        const p = createParticle('bg-red-500', fromRect.left - gridRect.left + fromRect.width/2 - 10, fromRect.top - gridRect.top + 10, 20, 20);
+                        setTimeout(() => { p.style.transform = `translate(0, ${toRect.top - fromRect.top}px)`; }, 50);
+                        setTimeout(() => { 
+                            toPe.style.backgroundColor = '#fee2e2'; 
+                            p.style.opacity = '0'; 
+                            setTimeout(() => p.remove(), 500); 
+                        }, 1400); 
+                    }, (colIdx * 1200) + (idx * 1600));
+                });
+            });
+        }
+
+        function showFinalResults() {
+            setMatrixActive('m1', 'o', [0]); setMatrixActive('m2', 'o', [1]); setMatrixActive('m3', 'o', [2]);
+            const topPEs = [1, 4, 7];
+            topPEs.forEach((peId, i) => {
+                const fromPe = document.getElementById(`pe-${peId}`);
+                const res = document.getElementById(`res-${i+1}`);
+                const fromRect = fromPe.getBoundingClientRect();
+                const toRect = res.getBoundingClientRect();
+                const gridRect = flowLayer.getBoundingClientRect();
+                
+                setTimeout(() => {
+                    const p = createParticle('bg-red-500', fromRect.left - gridRect.left + fromRect.width/2 - 10, fromRect.top - gridRect.top + 10, 20, 20);
+                    setTimeout(() => { p.style.transform = `translate(0, ${toRect.top - fromRect.top}px)`; }, 50);
+                    setTimeout(() => { res.classList.remove('opacity-0'); p.style.opacity = '0'; setTimeout(() => p.remove(), 500); }, 1400);
+                }, i * 1000);
+            });
+        }
+
+        function updateUI() {
+            const step = steps[currentStep];
+            stepDesc.innerHTML = `<strong>${step.title}</strong><br><br>${step.text}`;
+            prevBtn.disabled = currentStep === 0;
+            nextBtn.disabled = currentStep === totalSteps - 1;
+        }
+
+        function clearVisuals() {
+            flowLayer.innerHTML = '';
+            peConfigs.forEach(c => {
+                const pe = document.getElementById(`pe-${c.id}`);
+                const peW = document.getElementById(`pe${c.id}-w`);
+                const peI = document.getElementById(`pe${c.id}-i`);
+                const psum = document.getElementById(`psum-${c.id}`);
+                pe.classList.remove('highlight-pe');
+                pe.style.backgroundColor = 'white';
+                peW.classList.add('opacity-0');
+                peI.classList.add('opacity-0');
+                psum.classList.remove('psum-active');
+            });
+            [1, 2, 3].forEach(i => document.getElementById(`res-${i}`).classList.add('opacity-0'));
+            ['m1','m2','m3'].forEach(g => { setMatrixActive(g, 'f', []); setMatrixActive(g, 'i', []); setMatrixActive(g, 'o', []); });
+        }
+
+        function runUpTo(stepIndex) {
+            clearVisuals();
+            if (stepIndex >= 1) loadWeightRows_Static();
+            if (stepIndex >= 2) loadInputRows_Static();
+            if (stepIndex >= 3) highlightProcessing_Static();
+            if (stepIndex >= 4) verticalFlow_Static();
+            if (stepIndex >= 5) showFinalResults_Static();
+        }
+
+        function loadWeightRows_Static() { 
+            peConfigs.forEach(c => document.getElementById(`pe${c.id}-w`).classList.remove('opacity-0')); 
+            setMatrixActive('m1', 'f', [0,1,2]); setMatrixActive('m2', 'f', [0,1,2]); setMatrixActive('m3', 'f', [0,1,2]);
+        }
+        function loadInputRows_Static() { 
+            peConfigs.forEach(c => document.getElementById(`pe${c.id}-i`).classList.remove('opacity-0')); 
+            setMatrixActive('m1', 'i', [0,1,2]); setMatrixActive('m2', 'i', [1,2,3]); setMatrixActive('m3', 'i', [2,3,4]);
+        }
+        function highlightProcessing_Static() { 
+            peConfigs.forEach(c => {
+                document.getElementById(`pe-${c.id}`).classList.add('highlight-pe');
+                document.getElementById(`psum-${c.id}`).classList.add('psum-active');
+            });
+        }
+        function verticalFlow_Static() { 
+            [1, 2, 4, 5, 7, 8].forEach(i => document.getElementById(`pe-${i}`).style.backgroundColor = '#fee2e2'); 
+        }
+        function showFinalResults_Static() { 
+            [1, 2, 3].forEach(i => document.getElementById(`res-${i}`).classList.remove('opacity-0')); 
+            setMatrixActive('m1', 'o', [0]); setMatrixActive('m2', 'o', [1]); setMatrixActive('m3', 'o', [2]);
+        }
+
+        nextBtn.addEventListener('click', () => {
+            if (currentStep < totalSteps - 1) {
+                currentStep++;
+                steps[currentStep].action();
+                updateUI();
+            }
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentStep > 0) {
+                currentStep--;
+                runUpTo(currentStep);
+                updateUI();
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            currentStep = 0;
+            clearVisuals();
+            updateUI();
+        });
+
+        initGrid();
+        initMatrixDisplay();
+        updateUI();
+    </script>
+</body>
+</html>

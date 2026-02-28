@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TPU Architecture: The Vector Unit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Add MathJax for proper math rendering -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']]
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { background-color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; }
+        .canvas-container { position: relative; width: 100%; max-width: 900px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
+        canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+        .control-panel { background: #1e293b; color: white; padding: 1.5rem; border-radius: 0 0 12px 12px; }
+        .step-card { transition: all 0.3s ease; border-left: 4px solid transparent; }
+        .step-card.active { border-left-color: #3b82f6; background: #eff6ff; }
+        .tool-tip { position: absolute; background: rgba(0,0,0,0.8); color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-slate-900 mb-2">TPU Core: Vector Unit & Lanes</h1>
+            <p class="text-lg text-slate-600">Explore how Google's Tensor Processing Unit handles vector operations through SIMD parallelism.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left Side: Interaction & Visuals -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="canvas-container">
+                    <div id="tooltip" class="tool-tip"></div>
+                    <canvas id="tpuCanvas"></canvas>
+                    
+                    <div class="control-panel flex flex-wrap gap-4 items-center justify-between">
+                        <div class="flex gap-2">
+                            <button id="btnLoad" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded font-bold transition">1. Load Memory</button>
+                            <button id="btnCompute" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded font-bold transition">2. Execute ALU</button>
+                            <button id="btnOutput" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded font-bold transition">3. Push to Matrix</button>
+                        </div>
+                        <button id="btnReset" class="text-slate-400 hover:text-white underline text-sm">Reset Simulation</button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="font-bold text-slate-800 mb-1">Live Status</h3>
+                    <p id="statusText" class="text-slate-600 italic">Ready to begin. Start by loading data from Vector Memory.</p>
+                </div>
+            </div>
+
+            <!-- Right Side: Educational Content -->
+            <div class="space-y-4">
+                <div id="step1" class="step-card active p-4 rounded-lg bg-white shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-blue-600">The "Lane" Concept</h3>
+                    <p class="text-sm text-slate-600 mt-2">A Vector Unit consists of 128 parallel <b>lanes</b>. In the diagram, we see 8 lanes stacked ($\times 8$). Each lane acts as a sub-processor that handles one element of a large vector simultaneously.</p>
+                </div>
+
+                <div id="step2" class="step-card p-4 rounded-lg bg-white shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-slate-800">Vector Memory & Reg File</h3>
+                    <p class="text-sm text-slate-600 mt-2">Data is staged in the <b>32Ki $\times$ 32b Vector Memory</b>. The <b>DMA Interface</b> handles external data transfers. The <b>Register File</b> is the local lane storage for active computation.</p>
+                </div>
+
+                <div id="step3" class="step-card p-4 rounded-lg bg-white shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-slate-800">SIMD Units: ALU0 & ALU1</h3>
+                    <p class="text-sm text-slate-600 mt-2">Each lane has two specialized arithmetic logic units, <b>ALU0</b> and <b>ALU1</b>. In SIMD mode, every lane's ALUs perform the exact same operation (like addition or activation functions) on their local data simultaneously.</p>
+                </div>
+
+                <div id="step4" class="step-card p-4 rounded-lg bg-white shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-slate-800">Matrix Unit Interface</h3>
+                    <p class="text-sm text-slate-600 mt-2">Data flows <b>To</b> and <b>From</b> the Matrix Multiply Units. This bidirectional connection allows the Vector Unit to preprocess data for matrix multiplication and post-process the results (e.g., applying ReLU).</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tpuCanvas');
+        const ctx = canvas.getContext('2d');
+        const tooltip = document.getElementById('tooltip');
+        const statusText = document.getElementById('statusText');
+
+        // Layout Constants
+        const W = 900;
+        const H = 500;
+        canvas.width = W;
+        canvas.height = H;
+
+        let particles = [];
+        let animationFrame;
+        let simStep = 0; // 0: Idle, 1: Loaded, 2: Computed, 3: Out
+
+        // Components Definitions
+        const components = {
+            scalarControl: { x: 50, y: 30, w: 220, h: 50, label: 'Control from Scalar Unit', color: '#d8b4fe', fontSize: '15px' },
+            vectorControl: { x: 50, y: 110, w: 120, h: 80, label: 'Vector Control', color: '#fef08a', fontSize: '15px' },
+            dma: { x: 50, y: 220, w: 50, h: 220, label: 'DMA Interface', color: '#c4b5fd', vertical: true },
+            memory: { x: 125, y: 220, w: 120, h: 220, label: '32Ki x 32b Vector (Lane) Memory', color: '#bbf7d0', wrap: true },
+            lanes: [], // To be populated
+            toMatrix: { x: 750, y: 30, w: 100, h: 180, label: 'To Matrix Units', color: '#e2e8f0', vertical: true },
+            fromMatrix: { x: 750, y: 240, w: 100, h: 180, label: 'From Matrix Units', color: '#e2e8f0', vertical: true }
+        };
+
+        // Create 8 stacked lanes
+        for (let i = 0; i < 8; i++) {
+            const offset = i * 8;
+            components.lanes.push({
+                x: 320 + offset,
+                y: 200 + offset,
+                w: 260,
+                h: 220,
+                label: i === 7 ? 'Lanes (x128)' : '',
+                color: '#ffffff',
+                border: '#94a3b8'
+            });
+        }
+
+        class Particle {
+            constructor(startX, startY, targetX, targetY, color, size = 4) {
+                this.x = startX;
+                this.y = startY;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.color = color;
+                this.size = size;
+                this.progress = 0;
+                this.speed = 0.02 + Math.random() * 0.01;
+                this.done = false;
+            }
+
+            update() {
+                if (this.progress < 1) {
+                    this.progress += this.speed;
+                    this.currentX = this.x + (this.targetX - this.x) * this.progress;
+                    this.currentY = this.y + (this.targetY - this.y) * this.progress;
+                } else {
+                    this.done = true;
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.currentX, this.currentY, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function wrapText(context, text, x, y, maxWidth, lineHeight) {
+            const words = text.split(' ');
+            let line = '';
+            let currentY = y;
+
+            for (let n = 0; n < words.length; n++) {
+                let testLine = line + words[n] + ' ';
+                let metrics = context.measureText(testLine);
+                let testWidth = metrics.width;
+                if (testWidth > maxWidth && n > 0) {
+                    context.fillText(line, x, currentY);
+                    line = words[n] + ' ';
+                    currentY += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            }
+            context.fillText(line, x, currentY);
+        }
+
+        function drawComponent(c) {
+            ctx.fillStyle = c.color;
+            ctx.strokeStyle = c.border || '#334155';
+            ctx.lineWidth = 1.5;
+            
+            // Draw box
+            ctx.beginPath();
+            ctx.roundRect(c.x, c.y, c.w, c.h, 4);
+            ctx.fill();
+            ctx.stroke();
+
+            // Label
+            ctx.fillStyle = '#1e293b';
+            ctx.textAlign = 'center';
+            
+            if (c.label) {
+                if (c.vertical) {
+                    ctx.save();
+                    ctx.font = 'bold 15px Inter';
+                    ctx.translate(c.x + c.w / 2, c.y + c.h / 2);
+                    ctx.rotate(-Math.PI / 2);
+                    ctx.fillText(c.label, 0, 5);
+                    ctx.restore();
+                } else if (c.wrap) {
+                    ctx.font = 'bold 14px Inter';
+                    // Center vertically in the memory box
+                    wrapText(ctx, c.label, c.x + c.w / 2, c.y + 60, c.w - 10, 20);
+                } else {
+                    const fontSize = c.fontSize || '12px';
+                    ctx.font = `bold ${fontSize} Inter`;
+                    ctx.fillText(c.label, c.x + c.w / 2, c.y + (c.h > 40 ? 25 : c.h/2 + 7));
+                }
+            }
+            
+            // Internal parts for the last lane
+            if (c.label === 'Lanes (x128)') {
+                // ALU0 box
+                ctx.fillStyle = simStep === 2 ? '#fbbf24' : '#bae6fd';
+                ctx.strokeStyle = '#0284c7';
+                ctx.beginPath();
+                ctx.roundRect(c.x + 25, c.y + 30, 80, 70, 4);
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.fillStyle = '#0c4a6e';
+                ctx.font = 'bold 16px Inter';
+                ctx.fillText('ALU0', c.x + 65, c.y + 70);
+
+                // ALU1 box
+                ctx.fillStyle = simStep === 2 ? '#fbbf24' : '#bae6fd';
+                ctx.beginPath();
+                ctx.roundRect(c.x + 115, c.y + 30, 80, 70, 4);
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.fillStyle = '#0c4a6e';
+                ctx.fillText('ALU1', c.x + 155, c.y + 70);
+
+                // Register file
+                ctx.fillStyle = '#bbf7d0';
+                ctx.strokeStyle = '#166534';
+                ctx.beginPath();
+                ctx.roundRect(c.x + 20, c.y + 130, 220, 70, 4);
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.fillStyle = '#064e3b';
+                ctx.font = 'bold 14px Inter';
+                ctx.fillText('32 x 32b Vector (Lane)', c.x + 130, c.y + 160);
+                ctx.fillText('Reg File', c.x + 130, c.y + 182);
+            }
+        }
+
+        function drawConnectors() {
+            // Control lines
+            ctx.setLineDash([5, 5]);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(160, 80); ctx.lineTo(160, 110);
+            ctx.moveTo(110, 190); ctx.bezierCurveTo(110, 205, 150, 205, 150, 220);
+            ctx.moveTo(170, 150); ctx.bezierCurveTo(270, 150, 270, 310, 320, 310);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Memory to DMA (Bidirectional)
+            ctx.strokeStyle = '#334155';
+            ctx.beginPath();
+            ctx.moveTo(100, 330); ctx.lineTo(125, 330);
+            ctx.stroke();
+            // Arrowheads
+            ctx.beginPath(); ctx.moveTo(105, 325); ctx.lineTo(100, 330); ctx.lineTo(105, 335); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(120, 325); ctx.lineTo(125, 330); ctx.lineTo(120, 335); ctx.stroke();
+
+            // Memory to Lanes (Multiple small arrows)
+            for(let i=0; i<6; i++) {
+                const py = 290 + i * 20;
+                ctx.beginPath();
+                ctx.moveTo(245, py); ctx.lineTo(320, py);
+                ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(315, py-5); ctx.lineTo(320, py); ctx.lineTo(315, py+5); ctx.stroke();
+            }
+
+            // Bus lines to Matrix Units (To Matrix)
+            ctx.strokeStyle = '#991b1b';
+            ctx.lineWidth = 1;
+            for(let i=0; i<8; i++) {
+                ctx.beginPath();
+                ctx.moveTo(components.lanes[i].x + components.lanes[i].w, components.lanes[i].y + 20);
+                ctx.lineTo(750, 50 + i*15);
+                ctx.stroke();
+                // To-Arrowhead
+                ctx.beginPath(); ctx.moveTo(745, 45 + i*15); ctx.lineTo(750, 50 + i*15); ctx.lineTo(745, 55 + i*15); ctx.stroke();
+            }
+
+            // Bus lines from Matrix Units (From Matrix)
+            ctx.strokeStyle = '#3b82f6';
+            for(let i=0; i<8; i++) {
+                const py = 260 + i * 15;
+                ctx.beginPath();
+                ctx.moveTo(750, py);
+                ctx.lineTo(components.lanes[i].x + components.lanes[i].w, components.lanes[i].y + 110);
+                ctx.stroke();
+                // From-Arrowhead
+                ctx.beginPath(); 
+                ctx.moveTo(components.lanes[i].x + components.lanes[i].w + 5, components.lanes[i].y + 105); 
+                ctx.lineTo(components.lanes[i].x + components.lanes[i].w, components.lanes[i].y + 110); 
+                ctx.lineTo(components.lanes[i].x + components.lanes[i].w + 5, components.lanes[i].y + 115); 
+                ctx.stroke();
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, W, H);
+            
+            // Draw Main UI
+            drawComponent(components.scalarControl);
+            drawComponent(components.vectorControl);
+            drawComponent(components.dma);
+            drawComponent(components.memory);
+            
+            // Draw Lanes (Back to Front)
+            components.lanes.forEach(lane => drawComponent(lane));
+            
+            drawComponent(components.toMatrix);
+            drawComponent(components.fromMatrix);
+            drawConnectors();
+
+            // Handle Particles
+            particles = particles.filter(p => !p.done);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            // Auto-trigger idle particles from Control
+            if (Math.random() > 0.95) {
+                particles.push(new Particle(160, 80, 160, 110, '#a855f7', 2));
+            }
+
+            animationFrame = requestAnimationFrame(animate);
+        }
+
+        // Logic Functions
+        function triggerLoad() {
+            simStep = 1;
+            statusText.innerText = "Instruction: LOAD. Data is moving from Vector Memory into the Register File across all 128 lanes simultaneously.";
+            updateSteps(2);
+            for(let i=0; i<30; i++) {
+                setTimeout(() => {
+                    particles.push(new Particle(245, 290 + Math.random()*100, 450, 360, '#22c55e'));
+                }, i * 50);
+            }
+        }
+
+        function triggerCompute() {
+            if (simStep < 1) return;
+            simStep = 2;
+            statusText.innerText = "Instruction: EXECUTE. ALU0 and ALU1 in every lane process the register data. This is the core SIMD compute step.";
+            updateSteps(3);
+            for(let i=0; i<25; i++) {
+                setTimeout(() => {
+                    const targetX = i % 2 === 0 ? 385 : 475;
+                    particles.push(new Particle(450 + Math.random()*100, 360, targetX, 270, '#3b82f6'));
+                }, i * 30);
+            }
+        }
+
+        function triggerOutput() {
+            if (simStep < 2) return;
+            simStep = 3;
+            statusText.innerText = "Instruction: STORE/PUSH. Resulting vector is being sent to the Matrix Multiply Unit for the next stage of the neural network layer.";
+            updateSteps(4);
+            for(let i=0; i<8; i++) {
+                setTimeout(() => {
+                    particles.push(new Particle(580, 220 + i*10, 750, 50 + i*15, '#991b1b', 5));
+                }, i * 100);
+            }
+        }
+
+        function updateSteps(activeStep) {
+            document.querySelectorAll('.step-card').forEach((card, idx) => {
+                card.classList.toggle('active', idx + 1 === activeStep);
+            });
+        }
+
+        function reset() {
+            simStep = 0;
+            particles = [];
+            statusText.innerText = "Ready to begin. Start by loading data from Vector Memory.";
+            updateSteps(1);
+        }
+
+        // Event Listeners
+        document.getElementById('btnLoad').onclick = triggerLoad;
+        document.getElementById('btnCompute').onclick = triggerCompute;
+        document.getElementById('btnOutput').onclick = triggerOutput;
+        document.getElementById('btnReset').onclick = reset;
+
+        canvas.onmousemove = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (W / rect.width);
+            const y = (e.clientY - rect.top) * (H / rect.height);
+            
+            let found = false;
+            Object.values(components).concat(components.lanes).forEach(c => {
+                if (c.x && x > c.x && x < c.x + c.w && y > c.y && y < c.y + c.h) {
+                    if (c.label) {
+                        tooltip.style.opacity = 1;
+                        tooltip.style.left = (e.clientX + 10) + 'px';
+                        tooltip.style.top = (e.clientY + 10) + 'px';
+                        tooltip.innerText = c.label;
+                        found = true;
+                    }
+                }
+            });
+            if (!found) tooltip.style.opacity = 0;
+        };
+
+        window.onload = animate;
+    </script>
+</body>
+</html>

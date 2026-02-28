@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive TPU Block Diagram</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* TPU Block Base Styles */
+        .tpu-block {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            border-width: 2px;
+            border-style: solid;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 4px;
+            line-height: 1.2;
+            z-index: 10;
+        }
+
+        .tpu-block:hover {
+            transform: scale(1.02) translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            filter: brightness(1.05);
+            z-index: 20;
+        }
+
+        .tpu-block.active {
+            ring: 4px;
+            ring-color: #3b82f6;
+            animation: pulse-ring 2s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        /* Colors matching the diagram */
+        .block-green { background-color: #d9ead3; border-color: #93c47d; color: #274e13; }
+        .block-blue { background-color: #c9daf8; border-color: #6d9eeb; color: #1155cc; }
+        .block-yellow { background-color: #fff2cc; border-color: #ffd966; color: #7f6000; }
+        .block-red { background-color: #ea9999; border-color: #e06666; color: #660000; }
+
+        /* SVG Arrow Styles */
+        .path-green { stroke: #7cb342; stroke-width: 10; fill: none; stroke-linecap: butt; stroke-linejoin: round; }
+        .path-blue { stroke: #6d9eeb; stroke-width: 10; fill: none; stroke-linecap: butt; stroke-linejoin: round; }
+        .path-red { stroke: #e06666; stroke-width: 6; fill: none; stroke-linecap: butt; stroke-linejoin: round; }
+
+        /* Highlight overlay for active animation */
+        .path-highlight {
+            stroke: #fbbf24; /* Amber glow */
+            stroke-width: 14;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.8));
+        }
+        
+        .path-highlight.active {
+            opacity: 1;
+        }
+
+        .data-packet {
+            fill: #fbbf24;
+            opacity: 0;
+            filter: drop-shadow(0 0 6px #fbbf24);
+        }
+
+        /* Systolic Array Grid Animation (System View) */
+        .systolic-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            gap: 1px;
+            width: 100%;
+            height: 100%;
+            padding: 4px;
+            opacity: 0.3;
+        }
+
+        .sys-cell {
+            background-color: #d4af37;
+            border-radius: 1px;
+            transition: background-color 0.1s;
+        }
+
+        .sys-cell.active {
+            background-color: #ef4444;
+            box-shadow: 0 0 4px #ef4444;
+        }
+
+        /* Systolic View specific styles */
+        .micro-sys-cell {
+            background-color: transparent;
+            border-radius: 4px;
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.2s;
+        }
+        
+        .micro-sys-cell.active {
+            background-color: #ef4444; /* Red wave front */
+            border-color: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            color: white;
+            font-weight: bold;
+        }
+
+        .micro-sys-cell.preloaded {
+            background-color: rgba(147, 196, 125, 0.2); /* Faint green indicating weight loaded */
+            border-color: #93c47d;
+        }
+
+        .micro-sys-cell::after {
+            /* Inner directional arrows logic handled by JS/classes for clarity */
+            content: '';
+            position: absolute;
+            transition: opacity 0.2s;
+            opacity: 0;
+        }
+
+        /* Layout Container */
+        #diagram-container {
+            position: relative;
+            width: 100%;
+            max-width: 1000px;
+            aspect-ratio: 4 / 3;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.02);
+            margin: 0 auto;
+        }
+
+        .bandwidth-label {
+            position: absolute;
+            font-weight: 700;
+            font-size: 0.75rem;
+            color: #1e293b;
+            background: rgba(255,255,255,0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+            z-index: 15;
+            transform: translate(-50%, -50%);
+        }
+
+        .view-layer {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            transition: opacity 0.4s ease, visibility 0.4s;
+        }
+        
+        .view-hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-slate-800">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
+        <div>
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">Tensor Processing Unit (TPU)</h1>
+            <p class="text-sm text-slate-500">Interactive architecture & systolic visualization</p>
+        </div>
+        
+        <!-- View Toggle -->
+        <div class="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 shadow-inner">
+            <button id="toggle-system" class="px-4 py-1.5 text-sm font-bold rounded-md transition bg-white text-blue-600 shadow-sm">System View</button>
+            <button id="toggle-systolic" class="px-4 py-1.5 text-sm font-bold text-slate-500 rounded-md transition hover:text-slate-700">Systolic Array View</button>
+        </div>
+
+        <!-- Playback Controls -->
+        <div class="space-x-2 flex items-center">
+            <button id="btn-prev" disabled class="px-3 py-2 text-sm font-semibold text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200 transition disabled:opacity-50 disabled:cursor-not-allowed">&larr; Prev</button>
+            <span id="step-indicator" class="text-xs font-bold text-slate-400 uppercase w-20 text-center">Ready</span>
+            <button id="btn-next" class="px-3 py-2 text-sm font-semibold text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200 transition disabled:opacity-50 disabled:cursor-not-allowed">Next &rarr;</button>
+            <div class="w-px h-6 bg-slate-200 mx-1"></div>
+            <button id="btn-reset" class="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200 transition">Reset</button>
+            <button id="btn-simulate" class="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 shadow-md hover:shadow-lg transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" fill-rule="evenodd"></path></svg>
+                Play All
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Left: Interactive Diagram -->
+        <section class="flex-1 p-6 overflow-y-auto flex items-center justify-center bg-slate-50 relative">
+            <div class="w-full max-w-5xl flex justify-center">
+                <div id="diagram-container" class="border border-slate-200 relative bg-white">
+                    
+                    <!-- ============================================== -->
+                    <!-- VIEW 1: SYSTEM ARCHITECTURE (Original Diagram) -->
+                    <!-- ============================================== -->
+                    <div id="view-layer-system" class="view-layer">
+                        <!-- SVG Overlay for Data Paths -->
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 750" preserveAspectRatio="none" style="z-index: 1;">
+                            <defs>
+                                <!-- Green Markers -->
+                                <marker id="mk-green-end" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="#7cb342" /></marker>
+                                <marker id="mk-green-start" markerWidth="6" markerHeight="6" refX="1" refY="3" orient="auto"><polygon points="6 0, 0 3, 6 6" fill="#7cb342" /></marker>
+                                
+                                <!-- Blue Markers -->
+                                <marker id="mk-blue-end" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="#6d9eeb" /></marker>
+                                <marker id="mk-blue-start" markerWidth="6" markerHeight="6" refX="1" refY="3" orient="auto"><polygon points="6 0, 0 3, 6 6" fill="#6d9eeb" /></marker>
+                                
+                                <!-- Red Markers -->
+                                <marker id="mk-red-end" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="#e06666" /></marker>
+                                
+                                <!-- Highlight Markers -->
+                                <marker id="mk-hl-end" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><polygon points="0 0, 5 2.5, 0 5" fill="#fbbf24" /></marker>
+                            </defs>
+                            
+                            <!-- STATIC HARDWARE CONNECTIONS -->
+                            <g id="static-layer">
+                                <path class="path-green" marker-start="url(#mk-green-start)" marker-end="url(#mk-green-end)" d="M 130 375 L 170 375" />
+                                <path class="path-blue" marker-start="url(#mk-blue-start)" marker-end="url(#mk-blue-end)" d="M 235 160 L 350 160" />
+                                <path class="path-blue" marker-start="url(#mk-blue-start)" marker-end="url(#mk-blue-end)" d="M 235 375 L 340 375" />
+                                <path class="path-green" marker-end="url(#mk-green-end)" d="M 450 95 L 450 110" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 545 155 L 650 155" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 750 192 L 750 230" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 625 375 L 670 375" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 770 462 L 770 477" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 770 545 L 770 552" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 770 620 L 770 627" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" d="M 770 695 L 770 725 L 425 725 L 425 497" />
+                                <path class="path-red" marker-end="url(#mk-red-end)" d="M 230 385 L 265 385" />
+                                <path class="path-red" marker-end="url(#mk-red-end)" d="M 300 355 L 300 237" />
+                                <path class="path-red" marker-end="url(#mk-red-end)" d="M 335 210 L 595 210" />
+                                <path class="path-red" marker-end="url(#mk-red-end)" d="M 630 237 L 630 632" />
+                                <path class="path-red" marker-end="url(#mk-red-end)" d="M 595 660 L 485 660" />
+                                <path class="path-red" marker-end="url(#mk-red-end)" d="M 415 660 L 250 660 L 250 405 L 265 405" />
+                                <path class="path-blue" marker-end="url(#mk-blue-end)" stroke-width="6" d="M 230 525 L 275 525" />
+                                <path class="path-blue" stroke-width="6" d="M 300 567 L 300 595 L 250 595" />
+                            </g>
+
+                            <!-- ANIMATION HIGHLIGHT LAYER -->
+                            <g id="anim-layer">
+                                <path id="hl-path-host-ctrl" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 230 385 L 265 385" />
+                                <path id="hl-path-dram-int" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 450 95 L 450 110" />
+                                <path id="hl-path-int-fifo" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 545 155 L 650 155" />
+                                <path id="hl-path-fifo-mmu" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 750 192 L 750 230" />
+                                <path id="hl-path-sys-mmu" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 625 375 L 670 375" />
+                                <path id="hl-path-mmu-acc" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 770 462 L 770 477" />
+                                <path id="hl-path-acc-act" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 770 545 L 770 552" />
+                                <path id="hl-path-act-norm" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 770 620 L 770 627" />
+                                <path id="hl-path-loopback" class="path-highlight" marker-end="url(#mk-hl-end)" d="M 770 695 L 770 725 L 425 725 L 425 497" />
+                            </g>
+                            
+                            <circle id="packet-weight" class="data-packet" r="8" />
+                            <circle id="packet-activation" class="data-packet" r="8" />
+                            <circle id="packet-result" class="data-packet" r="8" />
+                        </svg>
+
+                        <!-- Bandwidth Labels -->
+                        <div class="bandwidth-label" style="left: 15%; top: 48%;">14 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 29%; top: 19%;">14 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 45%; top: 11%;">30 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 60%; top: 19%;">30 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 78%; top: 28%;">30 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 29%; top: 48%;">10 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 65%; top: 48%;">167 GiB/s</div>
+                        <div class="bandwidth-label" style="left: 60%; top: 97%;">167 GiB/s</div>
+
+                        <!-- TPU Components -->
+                        <div class="tpu-block block-green" id="pcie" style="left: 5%; top: 20%; width: 8%; height: 60%;">
+                            <div style="transform: rotate(-90deg); white-space: nowrap; display: flex; flex-direction: column; align-items: center;">
+                                <span class="tracking-wide">PCIe Gen3 x16</span>
+                                <span class="tracking-wide">Interface</span>
+                            </div>
+                        </div>
+
+                        <div class="tpu-block block-blue" id="host-interface" style="left: 18%; top: 20%; width: 5%; height: 60%;">
+                            <div style="transform: rotate(-90deg); white-space: nowrap;">Host Interface</div>
+                        </div>
+
+                        <div class="tpu-block block-green z-20" id="ddr3-chips" style="left: 36%; top: 6%; width: 20%; height: 6%; box-shadow: 4px -4px 0 -1px #93c47d, 8px -8px 0 -2px #d9ead3, 8px -8px 0 -1px #93c47d;">
+                            DDR3 DRAM Chips
+                        </div>
+
+                        <div class="tpu-block block-green" id="ddr3-interfaces" style="left: 36%; top: 16%; width: 18%; height: 8%;">
+                            DDR3 Interfaces
+                        </div>
+
+                        <div class="tpu-block block-blue" id="weight-fifo" style="left: 66%; top: 16%; width: 18%; height: 9%;">
+                            Weight FIFO<br><span class="text-[10px]">(Weight Fetcher)</span>
+                        </div>
+
+                        <div class="tpu-block block-blue flex-col justify-center items-center" id="unified-buffer" style="left: 35%; top: 35%; width: 15%; height: 30%;">
+                            <span>Unified<br>Buffer</span>
+                            <span class="text-xs font-normal opacity-80 mt-2">(Local<br>Activation<br>Storage)</span>
+                        </div>
+
+                        <div class="tpu-block block-blue" id="systolic-setup" style="left: 51%; top: 35%; width: 11%; height: 30%;">
+                            Systolic<br>Data<br>Setup
+                        </div>
+
+                        <div class="tpu-block block-yellow relative overflow-hidden" id="mmu" style="left: 68%; top: 32%; width: 22%; height: 29%; flex-direction: column;">
+                            <div class="absolute inset-0 z-0 systolic-grid" id="mmu-grid"></div>
+                            <div class="z-10 bg-[#fff2cc]/90 px-2 py-1 border border-[#ffd966] rounded backdrop-blur-sm pointer-events-none">
+                                Matrix Multiply Unit<br><span class="text-[11px] font-normal">(64K per cycle)</span>
+                            </div>
+                        </div>
+
+                        <div class="tpu-block block-blue" id="accumulators" style="left: 68%; top: 65%; width: 18%; height: 7%;">
+                            Accumulators
+                        </div>
+
+                        <div class="tpu-block block-yellow" id="activation" style="left: 68%; top: 75%; width: 18%; height: 7%;">
+                            Activation
+                        </div>
+
+                        <div class="tpu-block block-yellow" id="normalize" style="left: 68%; top: 85%; width: 18%; height: 7%;">
+                            Normalize / Pool
+                        </div>
+
+                        <div class="tpu-block block-red text-xs" id="ctrl-1" style="left: 27%; top: 48%; width: 6%; height: 6%;">Control</div>
+                        <div class="tpu-block block-red text-xs" id="ctrl-2" style="left: 27%; top: 25%; width: 6%; height: 6%;">Control</div>
+                        <div class="tpu-block block-red text-xs" id="ctrl-3" style="left: 60%; top: 25%; width: 6%; height: 6%;">Control</div>
+                        <div class="tpu-block block-red text-xs" id="ctrl-4" style="left: 60%; top: 85%; width: 6%; height: 6%;">Control</div>
+                        <div class="tpu-block block-red text-xs" id="ctrl-5" style="left: 42%; top: 85%; width: 6%; height: 6%;">Control</div>
+
+                        <div class="absolute border-2 border-[#94a3b8] bg-[#f1f5f9] flex flex-col justify-around py-1 items-center z-10" id="instr" style="left: 28%; top: 65%; width: 4%; height: 10%;">
+                            <div class="w-3/4 h-[2px] bg-slate-400"></div>
+                            <div class="w-3/4 h-[2px] bg-slate-400"></div>
+                            <div style="transform: rotate(-90deg);" class="text-[10px] font-bold text-slate-500">Instr</div>
+                        </div>
+                    </div>
+
+                    <!-- ============================================== -->
+                    <!-- VIEW 2: SYSTOLIC ARRAY MICRO-VIEW              -->
+                    <!-- ============================================== -->
+                    <div id="view-layer-systolic" class="view-layer view-hidden bg-white overflow-hidden p-8 flex flex-col items-center">
+                        <h2 id="systolic-step-title" class="text-3xl font-bold mb-8 text-center text-slate-700 w-full">Systolic Array</h2>
+                        
+                        <div class="relative w-full flex-1 flex items-center justify-center">
+                            
+                            <!-- SVG for Systolic Arrows/Pointers -->
+                            <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 0;">
+                                <defs>
+                                    <marker id="mk-sys-arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="#64748b" /></marker>
+                                </defs>
+                                <!-- Control connections -->
+                                <path stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#mk-sys-arr)" d="M 360 85 L 400 85 L 400 120" />
+                                <path stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#mk-sys-arr)" d="M 360 85 L 460 85 L 480 110" />
+                                
+                                <!-- Done Arrow -->
+                                <path stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#mk-sys-arr)" d="M 720 480 L 755 480" />
+                                
+                                <!-- Accumulator bottom loopbacks -->
+                                <path stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#mk-sys-arr)" d="M 380 480 L 460 480 L 460 435" />
+                                <path stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#mk-sys-arr)" d="M 500 480 L 530 480" />
+                                <path stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#mk-sys-arr)" d="M 570 480 L 600 480" />
+                                <path stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#mk-sys-arr)" d="M 640 480 L 670 480" />
+                            </svg>
+
+                            <!-- Labels -->
+                            <div class="absolute text-blue-600 font-semibold text-lg" style="left: 17%; top: 32%;">Input Data</div>
+                            <div id="sys-label-weights" class="absolute text-green-600 font-semibold text-lg opacity-40 transition-opacity" style="left: 77%; top: 22%;">Weights are preloaded</div>
+                            <div class="absolute text-black font-semibold" style="left: 77%; top: 69%;">Done</div>
+                            <div class="absolute text-black font-medium" style="left: 58%; top: 57%;">Partial Sums</div>
+                            <div class="absolute text-black font-medium" style="left: 63%; top: 22%;">Data</div>
+                            
+                            <!-- Control Box -->
+                            <div class="tpu-block block-red" id="sys-control" style="left: 25%; top: 10%; width: 11%; height: 7%;">Control</div>
+
+                            <!-- Input FIFOs (Left) -->
+                            <div class="absolute flex flex-col justify-between" style="left: 35%; top: 18%; height: 38%; width: 4%;">
+                                <div class="w-full h-[20%] border-2 border-slate-500 bg-blue-100 flex shadow-sm sys-fifo"><div class="w-1/3 border-r border-slate-400"></div><div class="w-1/3 border-r border-slate-400"></div></div>
+                                <div class="w-full h-[20%] border-2 border-slate-500 bg-blue-100 flex shadow-sm sys-fifo"><div class="w-1/3 border-r border-slate-400"></div><div class="w-1/3 border-r border-slate-400"></div></div>
+                                <div class="w-full h-[20%] border-2 border-slate-500 bg-blue-100 flex shadow-sm sys-fifo"><div class="w-1/3 border-r border-slate-400"></div><div class="w-1/3 border-r border-slate-400"></div></div>
+                                <div class="w-full text-center font-bold text-slate-500 leading-none">. <br> .</div>
+                                <div class="w-full h-[20%] border-2 border-slate-500 bg-blue-100 flex shadow-sm sys-fifo"><div class="w-1/3 border-r border-slate-400"></div><div class="w-1/3 border-r border-slate-400"></div></div>
+                            </div>
+                            
+                            <!-- FIFO connections to grid -->
+                            <div class="absolute border-t-2 border-slate-500" style="left: 39%; top: 22%; width: 8%;"></div>
+                            <div class="absolute border-t-2 border-slate-500" style="left: 39%; top: 31%; width: 8%;"></div>
+                            <div class="absolute border-t-2 border-slate-500" style="left: 39%; top: 40%; width: 8%;"></div>
+                            <div class="absolute border-t-2 border-slate-500" style="left: 39%; top: 52%; width: 8%;"></div>
+
+                            <!-- Systolic Core Grid (Yellow Box) -->
+                            <div class="absolute bg-[#fff2cc] border-[3px] border-slate-500" style="left: 47%; top: 16%; width: 28%; height: 46%;">
+                                <div id="micro-grid" class="w-full h-full grid grid-cols-4 grid-rows-4 p-2 gap-[2px]">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+
+                            <!-- Accumulators (Bottom) -->
+                            <div class="absolute flex justify-between items-end" style="left: 47%; top: 62%; width: 28%; height: 15%;">
+                                <!-- Acc 1 -->
+                                <div class="relative w-[20%] h-full flex flex-col items-center">
+                                    <div class="w-[1px] h-[15%] bg-slate-500"></div>
+                                    <div class="w-4 h-4 rounded-full border border-black flex items-center justify-center text-xs font-bold leading-none mb-1">+</div>
+                                    <div class="w-full flex-1 border-2 border-slate-500 bg-blue-100 flex flex-col sys-acc">
+                                        <div class="h-1/3 border-b border-slate-400"></div><div class="h-1/3 border-b border-slate-400"></div>
+                                    </div>
+                                </div>
+                                <!-- Acc 2 -->
+                                <div class="relative w-[20%] h-full flex flex-col items-center">
+                                    <div class="w-[1px] h-[15%] bg-slate-500"></div>
+                                    <div class="w-4 h-4 rounded-full border border-black flex items-center justify-center text-xs font-bold leading-none mb-1">+</div>
+                                    <div class="w-full flex-1 border-2 border-slate-500 bg-blue-100 flex flex-col sys-acc">
+                                        <div class="h-1/3 border-b border-slate-400"></div><div class="h-1/3 border-b border-slate-400"></div>
+                                    </div>
+                                </div>
+                                <!-- Acc 3 -->
+                                <div class="relative w-[20%] h-full flex flex-col items-center">
+                                    <div class="w-[1px] h-[15%] bg-slate-500"></div>
+                                    <div class="w-4 h-4 rounded-full border border-black flex items-center justify-center text-xs font-bold leading-none mb-1">+</div>
+                                    <div class="w-full flex-1 border-2 border-slate-500 bg-blue-100 flex flex-col sys-acc">
+                                        <div class="h-1/3 border-b border-slate-400"></div><div class="h-1/3 border-b border-slate-400"></div>
+                                    </div>
+                                </div>
+                                <!-- Ellipsis -->
+                                <div class="h-full flex items-end pb-4 font-bold tracking-widest text-lg">..</div>
+                                <!-- Acc 4 -->
+                                <div class="relative w-[20%] h-full flex flex-col items-center">
+                                    <div class="w-[1px] h-[15%] bg-slate-500"></div>
+                                    <div class="w-4 h-4 rounded-full border border-black flex items-center justify-center text-xs font-bold leading-none mb-1">+</div>
+                                    <div class="w-full flex-1 border-2 border-slate-500 bg-blue-100 flex flex-col sys-acc">
+                                        <div class="h-1/3 border-b border-slate-400"></div><div class="h-1/3 border-b border-slate-400"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="absolute text-center mt-4 text-sm font-semibold text-slate-800" style="bottom: 5%; width: 80%;">
+                                Software has the illusion that each 256B input is read at once, and they instantly update one location of each of 256 accumulator RAMs.
+                            </div>
+
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Information Panel -->
+        <aside class="w-96 bg-white border-l border-slate-200 flex flex-col shadow-xl z-20 shrink-0 transition-all duration-300">
+            <div class="p-5 border-b border-slate-200 bg-slate-50">
+                <h2 id="panel-header-title" class="text-sm font-bold tracking-wider text-slate-500 uppercase mb-1">Component Details</h2>
+                <div id="info-status" class="text-xs text-blue-600 font-semibold flex items-center gap-2">
+                    <span class="relative flex h-3 w-3">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                    </span>
+                    Hover or click a block to explore
+                </div>
+            </div>
+            
+            <div id="info-content" class="p-6 flex-1 overflow-y-auto">
+                <!-- Default State -->
+                <div id="default-info" class="text-center mt-10 opacity-60">
+                    <svg id="default-icon" class="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                    <p id="default-title" class="text-lg font-medium text-slate-600 mb-2">System Overview</p>
+                    <p id="default-desc" class="text-sm text-slate-500">The Tensor Processing Unit (TPU) is an AI accelerator application-specific integrated circuit (ASIC) developed by Google specifically for neural network machine learning.</p>
+                </div>
+
+                <!-- Dynamic Content Container -->
+                <div id="dynamic-info" class="hidden">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div id="info-icon" class="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg border-2"></div>
+                        <h3 id="info-title" class="text-xl font-bold text-slate-800 leading-tight"></h3>
+                    </div>
+                    
+                    <p id="info-desc" class="text-sm text-slate-600 mb-6 leading-relaxed"></p>
+
+                    <h4 class="text-xs font-bold tracking-wider text-slate-400 uppercase mb-3">Key Specifications</h4>
+                    <ul id="info-bullets" class="space-y-3">
+                        <!-- Bullets injected by JS -->
+                    </ul>
+
+                    <div id="info-extra" class="mt-6 p-4 bg-slate-50 border border-slate-100 rounded-lg hidden">
+                        <!-- Extra specific info -->
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+    </main>
+
+    <script>
+        // --- Data Definitions ---
+        const tpuData = {
+            'pcie': { title: 'PCIe Gen3 x16 Interface', theme: 'green', desc: 'The main communication bridge between the host machine (CPU) and the TPU card.', bullets: ['Off-Chip I/O component.', 'Provides 14 GiB/s of bandwidth in both directions.'] },
+            'host-interface': { title: 'Host Interface', theme: 'blue', desc: 'Buffers and translates commands from the host CPU into internal TPU control signals.', bullets: ['Data Buffer component.', 'Routes weights to DDR3 via DDR3 Interfaces.', 'Routes instructions to the Control queues.'] },
+            'ddr3-chips': { title: 'DDR3 DRAM Chips', theme: 'green', desc: 'External memory dedicated to storing model parameters (weights).', bullets: ['Off-chip 8 GiB DRAM total capacity.', 'Support many models simultaneously.', 'Connects via DDR3 Interfaces providing 30 GiB/s bandwidth.'] },
+            'ddr3-interfaces': { title: 'DDR3 Interfaces', theme: 'green', desc: 'Memory controllers managing the physical connection to the external DRAM chips.', bullets: ['Manages read/write operations at 30 GiB/s.', 'Funnel weights directly into the Weight FIFO.'] },
+            'weight-fifo': { title: 'Weight FIFO (Fetcher)', theme: 'blue', desc: 'On-chip buffer that prefetches and holds weights to ensure the MMU is never starved for data.', bullets: ['Four tiles deep on-chip weight FIFO.', 'Enables "Weight Stationary" architecture: same weights reused across multiple inputs.', 'Feeds the MMU at 30 GiB/s.'] },
+            'mmu': { title: 'Matrix Multiply Unit (MMU)', theme: 'yellow', desc: 'The computational heart of the TPU, utilizing a Systolic Array architecture to perform massive parallel matrix multiplications.', bullets: ['256x256 MACs (64K).', 'Systolic Array: 8-bit integer multiply-and-adds.', 'Produces one 256-element partial sum per clock cycle.', 'Holds one 64KiB tile of weights plus one for double-buffering (to hide the 256 cycles it takes to shift a tile in).'] },
+            'accumulators': { title: 'Accumulators', theme: 'blue', desc: 'Collects and adds the 16-bit partial products streaming out of the Matrix Multiply Unit.', bullets: ['16-bit products are collected here.', '4MiB of 32-bit accumulators (4096, 256-element, 32-bit accumulator).'], extra: '<strong>Why 4MiB?</strong><br>Peak performance observed at 1350 operations/byte. Round up to 2048. Double for double buffering.' },
+            'activation': { title: 'Activation Pipeline', theme: 'yellow', desc: 'Applies non-linear activation functions to the accumulated matrix results.', bullets: ['Computation block. Converts 32-bit accumulated results back down to 8-bit integers.'] },
+            'normalize': { title: 'Normalize / Pool', theme: 'yellow', desc: 'Performs spatial pooling operations and normalization before writing back to the Unified Buffer.', bullets: ['Computation block. Sends final processed activations back to the Unified Buffer at 167 GiB/s.'] },
+            'unified-buffer': { title: 'Unified Buffer', theme: 'blue', desc: 'The primary on-chip memory for storing input activations and intermediate results.', bullets: ['Local Activation Storage.', 'Massive read bandwidth: Feeds Systolic Setup at 167 GiB/s.', 'Receives written-back results at 167 GiB/s.'] },
+            'systolic-setup': { title: 'Systolic Data Setup', theme: 'blue', desc: 'Formats and aligns data from the Unified Buffer so it can be pushed rhythmically into the Systolic Array.', bullets: ['Prepares activations for wave-like execution.', 'Pushes data into the MMU at 167 GiB/s.'] },
+            'ctrl-1': { title: 'Control Path', theme: 'red', desc: 'Part of the unified red control loop orchestrating TPU timing.', bullets: ['Distributes decoded instructions.'] },
+            'ctrl-2': { title: 'Control Path', theme: 'red', desc: 'Part of the unified red control loop orchestrating TPU timing.', bullets: ['Manages buffer and I/O access.'] },
+            'ctrl-3': { title: 'Control Path', theme: 'red', desc: 'Part of the unified red control loop orchestrating TPU timing.', bullets: ['Synchronizes memory operations.'] },
+            'ctrl-4': { title: 'Control Path', theme: 'red', desc: 'Part of the unified red control loop orchestrating TPU timing.', bullets: ['Synchronizes systolic wave.'] },
+            'ctrl-5': { title: 'Control Path', theme: 'red', desc: 'Part of the unified red control loop orchestrating TPU timing.', bullets: ['Handles accumulator reset and writebacks.'] },
+            'instr': { title: 'Instruction Queue', theme: 'blue', desc: 'Holds incoming instructions from the host interface before feeding them into the TPU control loop.', bullets: ['Buffering point for PCIe commands.'] }
+        };
+
+        const themeStyles = {
+            'green': { bg: 'bg-[#d9ead3]', border: 'border-[#93c47d]', text: 'text-[#274e13]', icon: 'I/O' },
+            'blue': { bg: 'bg-[#c9daf8]', border: 'border-[#6d9eeb]', text: 'text-[#1155cc]', icon: 'BUF' },
+            'yellow': { bg: 'bg-[#fff2cc]', border: 'border-[#ffd966]', text: 'text-[#7f6000]', icon: 'CMP' },
+            'red': { bg: 'bg-[#ea9999]', border: 'border-[#e06666]', text: 'text-[#660000]', icon: 'CTL' }
+        };
+
+        // --- View State ---
+        let currentMode = 'system'; // 'system' or 'systolic'
+        let activeBlockId = null;
+        let isAutoPlaying = false;
+        let currentPhaseIndex = -1;
+        let currentRunId = 0;
+        let sleepResolvers = [];
+
+        // --- DOM Elements ---
+        const blocks = document.querySelectorAll('.tpu-block, #instr');
+        const defaultInfo = document.getElementById('default-info');
+        const dynamicInfo = document.getElementById('dynamic-info');
+        const infoTitle = document.getElementById('info-title');
+        const infoDesc = document.getElementById('info-desc');
+        const infoBullets = document.getElementById('info-bullets');
+        const infoExtra = document.getElementById('info-extra');
+        const infoIcon = document.getElementById('info-icon');
+        const infoStatus = document.getElementById('info-status');
+        const mmuGrid = document.getElementById('mmu-grid');
+        const microGrid = document.getElementById('micro-grid');
+
+        // --- Initialization ---
+        // Populate System view MMU Grid
+        for (let i = 0; i < 64; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'sys-cell';
+            mmuGrid.appendChild(cell);
+        }
+
+        // Populate Systolic view Micro Grid (4x4)
+        for (let r = 0; r < 4; r++) {
+            for (let c = 0; c < 4; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'micro-sys-cell';
+                cell.id = `mcell-${r}-${c}`;
+                if (c < 3 && r === 0) { cell.innerHTML = '<span class="text-slate-400">&rarr;</span>'; }
+                else if (r > 0 && c === 3) { cell.innerHTML = '<span class="text-slate-400">&darr;</span>'; }
+                microGrid.appendChild(cell);
+            }
+        }
+
+        // --- UI Interactions & Panel ---
+        function updatePanel(id) {
+            const data = tpuData[id];
+            if (!data) return;
+
+            defaultInfo.classList.add('hidden');
+            dynamicInfo.classList.remove('hidden');
+
+            infoTitle.textContent = data.title;
+            infoDesc.textContent = data.desc;
+            
+            const theme = themeStyles[data.theme];
+            infoIcon.className = `w-12 h-12 rounded-lg flex items-center justify-center font-bold text-sm border-2 ${theme.bg} ${theme.border} ${theme.text} shrink-0`;
+            infoIcon.textContent = theme.icon;
+
+            infoBullets.innerHTML = '';
+            data.bullets.forEach(bullet => {
+                const li = document.createElement('li');
+                li.className = 'flex items-start text-sm text-slate-700';
+                li.innerHTML = `<svg class="w-4 h-4 text-blue-500 mr-2 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> <span>${bullet}</span>`;
+                infoBullets.appendChild(li);
+            });
+
+            if (data.extra) {
+                infoExtra.classList.remove('hidden');
+                infoExtra.innerHTML = `<div class="text-sm text-slate-700">${data.extra}</div>`;
+            } else {
+                infoExtra.classList.add('hidden');
+            }
+        }
+
+        function restoreDefaultPanel() {
+            if (!activeBlockId && !isAutoPlaying) {
+                defaultInfo.classList.remove('hidden');
+                dynamicInfo.classList.add('hidden');
+                infoStatus.innerHTML = `<span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span></span> Hover or click a block to explore`;
+            }
+        }
+
+        blocks.forEach(block => {
+            block.addEventListener('mouseenter', () => { if (!activeBlockId && !isAutoPlaying) updatePanel(block.id); });
+            block.addEventListener('mouseleave', restoreDefaultPanel);
+            block.addEventListener('click', (e) => {
+                if (isAutoPlaying) return;
+                if (activeBlockId === block.id) {
+                    block.classList.remove('active');
+                    activeBlockId = null;
+                    restoreDefaultPanel();
+                } else {
+                    blocks.forEach(b => b.classList.remove('active'));
+                    block.classList.add('active');
+                    activeBlockId = block.id;
+                    updatePanel(block.id);
+                    infoStatus.innerHTML = `<svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg> Block locked (Click again to unlock)`;
+                }
+                e.stopPropagation();
+            });
+        });
+
+        document.body.addEventListener('click', () => {
+            if (activeBlockId && !isAutoPlaying) {
+                document.getElementById(activeBlockId)?.classList.remove('active');
+                activeBlockId = null;
+                restoreDefaultPanel();
+            }
+        });
+
+        // --- View Toggle Logic ---
+        const btnSys = document.getElementById('toggle-system');
+        const btnSystolic = document.getElementById('toggle-systolic');
+        const layerSys = document.getElementById('view-layer-system');
+        const layerSystolic = document.getElementById('view-layer-systolic');
+
+        function switchMode(mode) {
+            isAutoPlaying = false;
+            currentRunId++;
+            cancelAllSleeps();
+            resetVisuals();
+            currentMode = mode;
+            currentPhaseIndex = -1;
+            
+            if (mode === 'system') {
+                btnSys.className = "px-4 py-1.5 text-sm font-bold rounded-md transition bg-white text-blue-600 shadow-sm";
+                btnSystolic.className = "px-4 py-1.5 text-sm font-bold text-slate-500 rounded-md transition hover:text-slate-700";
+                layerSys.classList.remove('view-hidden');
+                layerSystolic.classList.add('view-hidden');
+                
+                document.getElementById('default-title').textContent = "System Overview";
+                document.getElementById('default-desc').textContent = "The Tensor Processing Unit (TPU) is an AI accelerator application-specific integrated circuit (ASIC) developed by Google specifically for neural network machine learning.";
+                document.getElementById('default-icon').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>';
+            } else {
+                btnSystolic.className = "px-4 py-1.5 text-sm font-bold rounded-md transition bg-white text-blue-600 shadow-sm";
+                btnSys.className = "px-4 py-1.5 text-sm font-bold text-slate-500 rounded-md transition hover:text-slate-700";
+                layerSystolic.classList.remove('view-hidden');
+                layerSys.classList.add('view-hidden');
+                document.getElementById('systolic-step-title').textContent = "Systolic Array";
+                
+                document.getElementById('default-title').textContent = "Systolic Array Core";
+                document.getElementById('default-desc').textContent = "A wave-like rhythmic computation architecture. Data flows horizontally, partial sums flow vertically, and weights are preloaded. This allows massive O(N^2) computations with only O(N) memory access.";
+                document.getElementById('default-icon').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>';
+            }
+            updateUI_Buttons();
+            restoreDefaultPanel();
+        }
+
+        btnSys.addEventListener('click', () => switchMode('system'));
+        btnSystolic.addEventListener('click', () => switchMode('systolic'));
+
+        // --- Animation Utilities ---
+        function sleep(ms) {
+            return new Promise(resolve => {
+                const timeoutId = setTimeout(() => {
+                    sleepResolvers = sleepResolvers.filter(r => r !== resolve);
+                    resolve();
+                }, ms);
+                sleepResolvers.push(() => {
+                    clearTimeout(timeoutId);
+                    resolve();
+                });
+            });
+        }
+
+        function cancelAllSleeps() {
+            sleepResolvers.forEach(resolve => resolve());
+            sleepResolvers = [];
+        }
+
+        function resetVisuals() {
+            blocks.forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.path-highlight').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.data-packet').forEach(p => { p.style.opacity = '0'; p.innerHTML = ''; });
+            document.getElementById('mmu').classList.remove('active');
+            document.querySelectorAll('.sys-cell').forEach(c => c.classList.remove('active'));
+            
+            // Micro view reset
+            document.querySelectorAll('.micro-sys-cell').forEach(c => { c.classList.remove('active', 'preloaded'); c.innerHTML = ''; });
+            document.querySelectorAll('.sys-fifo').forEach(f => { f.classList.remove('ring', 'ring-blue-400'); f.style.backgroundColor = ''; });
+            document.querySelectorAll('.sys-acc').forEach(a => a.classList.remove('ring', 'ring-blue-400', 'ring-red-400', 'ring-green-400'));
+            document.getElementById('sys-label-weights').classList.replace('opacity-100', 'opacity-40');
+            document.getElementById('sys-control').classList.remove('active');
+            
+            // Reset default arrows to match diagram
+            for (let r = 0; r < 4; r++) {
+                for (let c = 0; c < 4; c++) {
+                    const cell = document.getElementById(`mcell-${r}-${c}`);
+                    if (c < 3 && r === 0) { cell.innerHTML = '<span class="text-slate-400">&rarr;</span>'; }
+                    else if (r > 0 && c === 3) { cell.innerHTML = '<span class="text-slate-400">&darr;</span>'; }
+                }
+            }
+            document.getElementById('systolic-step-title').textContent = "Systolic Array";
+        }
+
+        // --- Phases: SYSTEM VIEW ---
+        const phasesSystem = [
+            { name: "Phase 1: Fetching Instructions", run: async (runId) => { 
+                await highlightBlockTemporarily('host-interface', 500); 
+                highlightPath('hl-path-host-ctrl', 800); 
+                await highlightBlockTemporarily('ctrl-1', 800); 
+            }},
+            { name: "Phase 2: Pre-fetching Weights", run: async (runId) => { 
+                highlightPath('hl-path-dram-int', 800); animatePacket('packet-weight', 'hl-path-dram-int', 800); 
+                await highlightBlockTemporarily('ddr3-chips', 800); 
+                if (runId !== currentRunId) return;
+                highlightPath('hl-path-int-fifo', 800); animatePacket('packet-weight', 'hl-path-int-fifo', 800); 
+                await highlightBlockTemporarily('ddr3-interfaces', 800); 
+                if (runId !== currentRunId) return;
+                highlightPath('hl-path-fifo-mmu', 800); animatePacket('packet-weight', 'hl-path-fifo-mmu', 800); 
+                await highlightBlockTemporarily('weight-fifo', 800); 
+            }},
+            { name: "Phase 3: Fetching Activations", run: async (runId) => { 
+                await highlightBlockTemporarily('unified-buffer', 800); 
+                if (runId !== currentRunId) return;
+                highlightPath('hl-path-sys-mmu', 800); animatePacket('packet-activation', 'hl-path-sys-mmu', 800); 
+                await highlightBlockTemporarily('systolic-setup', 800); 
+            }},
+            { name: "Phase 4: Systolic Matrix Multiplication", run: async (runId) => { 
+                updatePanel('mmu'); 
+                document.getElementById('mmu').classList.add('active'); 
+                await animateSystolicArray(1500); 
+                if (runId === currentRunId) document.getElementById('mmu').classList.remove('active'); 
+            }},
+            { name: "Phase 5: Accumulating Partial Sums", run: async (runId) => { 
+                highlightPath('hl-path-mmu-acc', 600); animatePacket('packet-result', 'hl-path-mmu-acc', 600); 
+                await highlightBlockTemporarily('accumulators', 800); 
+            }},
+            { name: "Phase 6: Activation & Pooling", run: async (runId) => { 
+                highlightPath('hl-path-acc-act', 500); 
+                await highlightBlockTemporarily('activation', 600); 
+                if (runId !== currentRunId) return;
+                highlightPath('hl-path-act-norm', 500); 
+                await highlightBlockTemporarily('normalize', 600); 
+            }},
+            { name: "Phase 7: Write-back to Unified Buffer", run: async (runId) => { 
+                highlightPath('hl-path-loopback', 1000); animatePacket('packet-result', 'hl-path-loopback', 1000); 
+                await highlightBlockTemporarily('unified-buffer', 1000); 
+            }}
+        ];
+
+        // --- Phases: SYSTOLIC VIEW ---
+        function renderMicroCycle(t) {
+            document.querySelectorAll('.micro-sys-cell').forEach(c => {
+                c.classList.remove('active');
+                c.innerHTML = ''; 
+                c.classList.add('preloaded');
+            });
+            
+            for (let r = 0; r < 4; r++) {
+                for (let c = 0; c < 4; c++) {
+                    const cell = document.getElementById(`mcell-${r}-${c}`);
+                    if (r + c === t) {
+                        cell.classList.add('active');
+                        cell.innerHTML = 'MAC';
+                    } else if (r + c < t) {
+                        if (c < 3 && r < 3) { cell.innerHTML = '<span class="text-slate-500 font-bold">&searr;</span>'; }
+                        else if (c < 3) { cell.innerHTML = '<span class="text-slate-500 font-bold">&rarr;</span>'; }
+                        else if (r < 3) { cell.innerHTML = '<span class="text-slate-500 font-bold">&darr;</span>'; }
+                    }
+                }
+            }
+        }
+
+        const phasesSystolic = [
+            { name: "Step 1: Preload Weights", run: async (runId) => {
+                document.getElementById('sys-control').classList.add('active');
+                await sleep(300);
+                if (runId !== currentRunId) return;
+                document.getElementById('sys-label-weights').classList.replace('opacity-40', 'opacity-100');
+                document.querySelectorAll('.micro-sys-cell').forEach(c => { c.classList.add('preloaded'); c.innerHTML = '<span class="text-green-700 text-[10px] font-bold">W</span>'; });
+                await sleep(600);
+                if (runId === currentRunId) document.getElementById('sys-control').classList.remove('active');
+            }},
+            { name: "Step 2: Buffer Input Data", run: async (runId) => {
+                document.querySelectorAll('.micro-sys-cell').forEach(c => { c.innerHTML = ''; }); 
+                document.querySelectorAll('.sys-fifo').forEach(f => { f.classList.add('ring', 'ring-blue-400'); f.style.backgroundColor = '#93c5fd'; });
+                await sleep(600);
+            }},
+            ...Array.from({length: 7}, (_, i) => ({
+                name: `Cycle ${i+1}: Systolic Wavefront (T=${i})`,
+                run: async (runId) => {
+                    renderMicroCycle(i);
+                    if (i < 4) { document.querySelectorAll('.sys-fifo')[i].style.backgroundColor = '#dbeafe'; }
+                    if (i >= 3) { 
+                        const accIndex = i - 3;
+                        if(accIndex < 4) {
+                            const accs = document.querySelectorAll('.sys-acc');
+                            accs[accIndex].classList.add('ring', 'ring-red-400');
+                            setTimeout(() => { 
+                                if (runId === currentRunId && accs[accIndex]) accs[accIndex].classList.remove('ring', 'ring-red-400'); 
+                            }, 400); 
+                        }
+                    }
+                    await sleep(700);
+                }
+            })),
+            { name: "Final Step: Output Done", run: async (runId) => {
+                document.querySelectorAll('.micro-sys-cell').forEach(c => c.classList.remove('active'));
+                document.querySelectorAll('.sys-acc').forEach(a => a.classList.add('ring', 'ring-green-400'));
+                await sleep(800);
+            }}
+        ];
+
+        // --- Core Playback Logic ---
+        function getPhases() { return currentMode === 'system' ? phasesSystem : phasesSystolic; }
+
+        function updateUI_Buttons() {
+            const btnNext = document.getElementById('btn-next');
+            const btnPrev = document.getElementById('btn-prev');
+            const btnSim = document.getElementById('btn-simulate');
+            const stepInd = document.getElementById('step-indicator');
+            const phases = getPhases();
+
+            btnNext.disabled = currentPhaseIndex >= phases.length - 1;
+            btnPrev.disabled = currentPhaseIndex <= 0;
+
+            if (isAutoPlaying) {
+                btnSim.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="10" rx="1" /></svg> Stop';
+                btnSim.classList.add('bg-red-500', 'hover:bg-red-600');
+                btnSim.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            } else {
+                btnSim.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" fill-rule="evenodd"></path></svg> Play All';
+                btnSim.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                btnSim.classList.remove('bg-red-500', 'hover:bg-red-600');
+            }
+            
+            if (currentPhaseIndex === -1) { stepInd.textContent = `Ready`; btnPrev.disabled = true; } 
+            else { stepInd.textContent = `Step ${currentPhaseIndex + 1}/${phases.length}`; }
+        }
+
+        async function highlightPath(pathId, duration) {
+            const runId = currentRunId;
+            const path = document.getElementById(pathId);
+            if (!path) return;
+            path.classList.add('active');
+            await sleep(duration);
+            if (runId === currentRunId) path.classList.remove('active');
+        }
+
+        function animatePacket(packetId, pathId, duration) {
+            return new Promise(resolve => {
+                const runId = currentRunId;
+                const packet = document.getElementById(packetId);
+                const path = document.getElementById(pathId);
+                if (!packet || !path) { resolve(); return; }
+
+                packet.style.opacity = '1';
+                const animateMotion = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion");
+                animateMotion.setAttribute("dur", `${duration}ms`);
+                animateMotion.setAttribute("repeatCount", "1");
+                animateMotion.setAttribute("fill", "freeze");
+                
+                const mpath = document.createElementNS("http://www.w3.org/2000/svg", "mpath");
+                mpath.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", `#${pathId}`);
+                
+                animateMotion.appendChild(mpath);
+                packet.appendChild(animateMotion);
+                animateMotion.beginElement();
+
+                const timeoutId = setTimeout(() => {
+                    sleepResolvers = sleepResolvers.filter(r => r !== resolve);
+                    if (runId === currentRunId) { packet.style.opacity = '0'; packet.innerHTML = ''; }
+                    resolve();
+                }, duration);
+
+                sleepResolvers.push(() => {
+                    clearTimeout(timeoutId);
+                    resolve();
+                });
+            });
+        }
+
+        async function highlightBlockTemporarily(blockId, duration) {
+            const runId = currentRunId;
+            const block = document.getElementById(blockId);
+            if(block) block.classList.add('active');
+            updatePanel(blockId);
+            await sleep(duration);
+            if(block && runId === currentRunId) block.classList.remove('active');
+        }
+
+        async function animateSystolicArray(duration) {
+            const runId = currentRunId;
+            const cells = document.querySelectorAll('.sys-cell');
+            const cols = 8; const rows = 8; const maxWave = cols + rows;
+            const stepTime = duration / maxWave;
+
+            for (let wave = 0; wave < maxWave; wave++) {
+                if (runId !== currentRunId) return;
+                cells.forEach((cell, index) => {
+                    const c = index % cols; const r = Math.floor(index / cols);
+                    if (c + r === wave) {
+                        cell.classList.add('active');
+                        setTimeout(() => { 
+                            if (runId === currentRunId) cell.classList.remove('active'); 
+                        }, stepTime * 3);
+                    }
+                });
+                await sleep(stepTime);
+            }
+        }
+
+        async function playPhase(index) {
+            const phases = getPhases();
+            
+            // Abort completely, skip immediately
+            currentRunId++;
+            cancelAllSleeps();
+            resetVisuals();
+            
+            currentPhaseIndex = index;
+            updateUI_Buttons();
+            
+            infoStatus.textContent = phases[index].name;
+            document.getElementById('systolic-step-title').textContent = phases[index].name;
+            
+            const runId = currentRunId;
+            await phases[index].run(runId);
+        }
+
+        document.getElementById('btn-next').addEventListener('click', () => {
+            isAutoPlaying = false; 
+            if (currentPhaseIndex >= getPhases().length - 1) return;
+            playPhase(currentPhaseIndex + 1);
+        });
+
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            isAutoPlaying = false;
+            if (currentPhaseIndex <= 0) return;
+            playPhase(currentPhaseIndex - 1);
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            isAutoPlaying = false; 
+            currentRunId++;
+            cancelAllSleeps();
+            currentPhaseIndex = -1;
+            resetVisuals(); 
+            activeBlockId = null;
+            restoreDefaultPanel(); 
+            updateUI_Buttons();
+        });
+
+        document.getElementById('btn-simulate').addEventListener('click', async () => {
+            if (isAutoPlaying) {
+                isAutoPlaying = false;
+                currentRunId++;
+                cancelAllSleeps();
+                resetVisuals();
+                updateUI_Buttons();
+                infoStatus.innerHTML = `Stopped.`;
+                return;
+            }
+
+            isAutoPlaying = true;
+            currentPhaseIndex = 0; 
+            
+            const phases = getPhases();
+            const runId = ++currentRunId;
+
+            for (let i = 0; i < phases.length; i++) {
+                if (runId !== currentRunId || !isAutoPlaying) break;
+                
+                currentPhaseIndex = i; 
+                updateUI_Buttons();
+                resetVisuals();
+                
+                infoStatus.textContent = phases[i].name;
+                document.getElementById('systolic-step-title').textContent = phases[i].name;
+                
+                await phases[i].run(runId);
+                if (runId === currentRunId && isAutoPlaying) await sleep(200); 
+            }
+
+            if (runId === currentRunId && isAutoPlaying) {
+                infoStatus.innerHTML = `<svg class="w-4 h-4 text-green-500 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg> Complete!`;
+                isAutoPlaying = false; 
+                updateUI_Buttons();
+            }
+        });
+
+        updateUI_Buttons();
+    </script>
+</body>
+</html>
