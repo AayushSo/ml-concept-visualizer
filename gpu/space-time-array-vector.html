@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Array vs. Vector Space-Time Grid</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .grid-cell {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1.5px solid #e2e8f0;
+        }
+        .active-cell {
+            background-color: white !important;
+            border-color: #6366f1 !important;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+            transform: scale(1.05);
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-10 flex flex-col md:flex-row justify-between items-end gap-4">
+            <div>
+                <h1 class="text-3xl font-black text-slate-900 tracking-tight">Array vs. Vector Processor</h1>
+                <p class="text-slate-500 font-medium italic">Space-Time Parallelism Mapping</p>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="prevStep()" class="px-4 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm hover:bg-slate-50 shadow-sm transition-all disabled:opacity-30" id="prev-btn">Back</button>
+                <button onclick="nextStep()" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all disabled:opacity-30" id="next-btn">Next Cycle</button>
+                <button onclick="reset()" class="px-4 py-2 bg-slate-200 text-slate-600 rounded-lg font-bold text-sm hover:bg-slate-300 transition-all">Reset</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8 mb-8">
+            <!-- Instruction Stream Sidebar -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 class="text-xs font-black uppercase text-slate-400 tracking-widest mb-4">Instruction Stream</h3>
+                    <div class="mono text-[12px] space-y-2 text-slate-700">
+                        <div id="inst-0" class="p-2 rounded-lg border border-transparent transition-all"><span class="text-blue-600 font-bold">LD</span> <span class="ml-4">VR $\leftarrow$ A[3:0]</span></div>
+                        <div id="inst-1" class="p-2 rounded-lg border border-transparent transition-all"><span class="text-emerald-600 font-bold">ADD</span> <span class="ml-2">VR $\leftarrow$ VR, 1</span></div>
+                        <div id="inst-2" class="p-2 rounded-lg border border-transparent transition-all"><span class="text-amber-600 font-bold">MUL</span> <span class="ml-2">VR $\leftarrow$ VR, 2</span></div>
+                        <div id="inst-3" class="p-2 rounded-lg border border-transparent transition-all"><span class="text-rose-600 font-bold">ST</span> <span class="ml-4">A[3:0] $\leftarrow$ VR</span></div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
+                    <h3 class="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-4">Space-Time Legend</h3>
+                    <div class="space-y-4 text-xs font-medium">
+                        <div class="flex items-center gap-3">
+                            <div class="w-4 h-0.5 bg-slate-400"></div>
+                            <span>$\rightarrow$ Space (Hardware Units)</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-0.5 h-4 bg-slate-400"></div>
+                            <span>$\downarrow$ Time (Clock Cycles)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visualization Grids -->
+            <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                <!-- Array Processor Grid -->
+                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col items-center">
+                    <h2 class="text-lg font-black text-slate-800 uppercase tracking-tighter mb-6">Array Processor</h2>
+                    
+                    <div class="grid grid-cols-4 gap-2 mb-4 w-full px-2">
+                        <div class="h-10 flex items-center justify-center bg-blue-50 border-2 border-blue-500 rounded-lg text-[10px] font-black text-blue-600">PE0</div>
+                        <div class="h-10 flex items-center justify-center bg-blue-50 border-2 border-blue-500 rounded-lg text-[10px] font-black text-blue-600">PE1</div>
+                        <div class="h-10 flex items-center justify-center bg-blue-50 border-2 border-blue-500 rounded-lg text-[10px] font-black text-blue-600">PE2</div>
+                        <div class="h-10 flex items-center justify-center bg-blue-50 border-2 border-blue-500 rounded-lg text-[10px] font-black text-blue-600">PE3</div>
+                    </div>
+
+                    <div class="relative w-full aspect-square max-w-[280px]">
+                        <div id="array-grid" class="grid grid-cols-4 grid-rows-4 gap-2 h-full w-full"></div>
+                    </div>
+                </div>
+
+                <!-- Vector Processor Grid -->
+                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col items-center">
+                    <h2 class="text-lg font-black text-slate-800 uppercase tracking-tighter mb-6">Vector Processor</h2>
+                    
+                    <div class="grid grid-cols-4 gap-2 mb-4 w-full px-2">
+                        <div class="h-10 flex items-center justify-center bg-indigo-50 border-2 border-indigo-500 rounded-lg text-[10px] font-black text-indigo-600 uppercase">LD</div>
+                        <div class="h-10 flex items-center justify-center bg-indigo-50 border-2 border-indigo-500 rounded-lg text-[10px] font-black text-indigo-600 uppercase">ADD</div>
+                        <div class="h-10 flex items-center justify-center bg-indigo-50 border-2 border-indigo-500 rounded-lg text-[10px] font-black text-indigo-600 uppercase">MUL</div>
+                        <div class="h-10 flex items-center justify-center bg-indigo-50 border-2 border-indigo-500 rounded-lg text-[10px] font-black text-indigo-600 uppercase">ST</div>
+                    </div>
+
+                    <div class="relative w-full aspect-square max-w-[280px]">
+                        <div id="vector-grid" class="grid grid-cols-4 grid-rows-7 gap-2 h-full w-full"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        
+        <!-- Summary Insights -->
+        <div id="insight-panel" class="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex gap-6 items-center">
+            <div class="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+            <div>
+                <h4 id="insight-title" class="text-sm font-black text-indigo-900 uppercase tracking-wider mb-1">Architecture Comparison</h4>
+                <p id="insight-text" class="text-sm text-indigo-700 font-medium leading-relaxed">
+                    Click "Next Cycle" to visualize how data flows through the Space-Time grid of each architecture.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let cycle = 0;
+        const maxCycles = 7;
+        
+        const ops = ["LD", "AD", "MU", "ST"];
+        const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+
+        function initGrids() {
+            const arrayGrid = document.getElementById('array-grid');
+            const vectorGrid = document.getElementById('vector-grid');
+            if (!arrayGrid || !vectorGrid) return;
+
+            arrayGrid.innerHTML = '';
+            vectorGrid.innerHTML = '';
+
+            for (let t = 0; t < 4; t++) {
+                for (let s = 0; s < 4; s++) {
+                    arrayGrid.innerHTML += `
+                        <div id="a-${t}-${s}" class="grid-cell bg-white rounded-lg flex items-center justify-center text-[10px] font-black text-slate-300">
+                            ${ops[t]}${s}
+                        </div>
+                    `;
+                }
+            }
+
+            for (let t = 0; t < 7; t++) {
+                for (let s = 0; s < 4; s++) {
+                    const dataIdx = t - s;
+                    const content = (dataIdx >= 0 && dataIdx < 4) ? `${ops[s]}${dataIdx}` : '';
+                    const opacityClass = content ? 'text-slate-300' : 'opacity-0';
+                    vectorGrid.innerHTML += `
+                        <div id="v-${t}-${s}" class="grid-cell bg-white rounded-lg flex items-center justify-center text-[10px] font-black ${opacityClass}">
+                            ${content}
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        function nextStep() {
+            if (cycle < maxCycles) {
+                cycle++;
+                updateUI();
+            }
+        }
+
+        function prevStep() {
+            if (cycle > 0) {
+                cycle--;
+                updateUI();
+            }
+        }
+
+        function reset() {
+            cycle = 0;
+            updateUI();
+        }
+
+        function updateUI() {
+            const stepCounter = document.getElementById('step-counter');
+            const insightText = document.getElementById('insight-text');
+            const actionTitle = document.getElementById('insight-title');
+            
+            if (stepCounter) stepCounter.innerText = `Cycle ${cycle}`;
+
+            // Disable buttons logic
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+            if (prevBtn) prevBtn.disabled = (cycle === 0);
+            if (nextBtn) nextBtn.disabled = (cycle === maxCycles);
+
+            // Reset cell visuals and instruction highlighting
+            document.querySelectorAll('.grid-cell').forEach(c => {
+                c.classList.remove('active-cell');
+                c.style.color = "";
+            });
+            document.querySelectorAll('[id^="inst-"]').forEach(i => i.classList.remove('bg-indigo-50', 'border-indigo-200', 'shadow-sm'));
+
+            if (cycle === 0) {
+                if (insightText) insightText.innerText = "Ready to start. Watch how the PEs (Array) and Functional Units (Vector) engage.";
+                if (actionTitle) actionTitle.innerText = "Architecture Comparison";
+                return;
+            }
+
+            // --- Array Processor Highlighting ---
+            if (cycle <= 4) {
+                const t = cycle - 1;
+                // Array highlights one instruction line at a time
+                const instEl = document.getElementById(`inst-${t}`);
+                if (instEl) instEl.classList.add('bg-indigo-50', 'border-indigo-200', 'shadow-sm');
+                
+                for (let s = 0; s < 4; s++) {
+                    const cell = document.getElementById(`a-${t}-${s}`);
+                    if (cell) {
+                        cell.classList.add('active-cell');
+                        cell.style.color = colors[t];
+                    }
+                }
+            }
+
+            // --- Vector Processor Highlighting ---
+            // Vector Highlights multiple instructions simultaneously if they are in the pipe
+            const t_v = cycle - 1;
+            for (let s = 0; s < 4; s++) {
+                const cell = document.getElementById(`v-${t_v}-${s}`);
+                if (cell && !cell.classList.contains('opacity-0')) {
+                    cell.classList.add('active-cell');
+                    cell.style.color = colors[s];
+                    
+                    // HIGHLIGHT SIDEBAR: If an operation 's' is active in the vector grid, 
+                    // highlight the corresponding line in the sidebar.
+                    const instEl = document.getElementById(`inst-${s}`);
+                    if (instEl) instEl.classList.add('bg-indigo-50', 'border-indigo-200', 'shadow-sm');
+                }
+            }
+
+            // Update Insights
+            if (insightText) {
+                if (cycle === 1) insightText.innerText = "Cycle 1: Array starts LD for all data. Vector starts LD for just element 0.";
+                else if (cycle === 2) insightText.innerText = "Cycle 2: Array performs ADD for all. Vector pipeline starts filling with LD1 and AD0.";
+                else if (cycle === 3) insightText.innerText = "Cycle 3: Array performs MUL. Vector is executing LD2, AD1, and MU0.";
+                else if (cycle === 4) insightText.innerText = "Cycle 4: Array finishes with STORE. Vector pipeline is now FULL - every unit is busy.";
+                else if (cycle === 5) insightText.innerText = "Cycle 5: Array is finished. Vector begins draining the pipeline (LD3, AD2, MU1, ST0).";
+                else if (cycle === 6) insightText.innerText = "Cycle 6: Vector finishes AD3, MU2, and ST1.";
+                else if (cycle === 7) insightText.innerText = "Cycle 7: Vector execution complete. Last elements MU3 and ST3 are retired.";
+            }
+        }
+
+        window.onload = () => {
+            initGrids();
+            updateUI();
+        }
+    </script>
+</body>
+</html>

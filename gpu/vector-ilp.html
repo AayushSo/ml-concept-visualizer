@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Instruction Level Parallelism</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .element-node {
+            transition: all 0.3s ease;
+        }
+        .unit-box {
+            fill: none;
+            stroke: #333;
+            stroke-width: 2.5;
+        }
+        .label-text {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-900">
+    <div class="max-w-6xl mx-auto p-6">
+        <header class="mb-8 border-b pb-4">
+            <h1 class="text-3xl font-bold text-slate-800">Vector Instruction Level Parallelism</h1>
+            <p class="text-slate-600 mt-2">Visualizing accumulation of vector chunks over cycles for multiple iterations.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Sidebar Controls -->
+            <div class="lg:col-span-1 space-y-6 bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
+                <div>
+                    <h3 class="font-bold text-sm uppercase text-gray-500 mb-4 tracking-wider">Pipeline Stats</h3>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                            <div class="text-[10px] text-blue-500 font-bold uppercase">Current Cycle</div>
+                            <div id="cycleCountLarge" class="text-3xl font-black text-blue-700">0</div>
+                        </div>
+                        <div class="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
+                            <div class="text-[10px] text-green-500 font-bold uppercase">Ops / Cycle</div>
+                            <div id="opsPerCycle" class="text-3xl font-black text-green-700">0</div>
+                        </div>
+                        <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 text-center">
+                            <div class="text-[10px] text-slate-500 font-bold uppercase">Total Ops Completed</div>
+                            <div id="totalOpsLarge" class="text-3xl font-black text-slate-700">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <button id="playBtn" class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition flex items-center justify-center gap-2">
+                        <span id="playIcon">▶</span> <span id="playText">Play Animation</span>
+                    </button>
+                    <button id="stepBtn" class="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition border border-slate-300">
+                        Step Forward
+                    </button>
+                    <button id="resetBtn" class="w-full py-2 px-4 text-gray-400 hover:text-red-500 transition text-xs uppercase font-bold">
+                        Reset
+                    </button>
+                </div>
+
+                <div class="pt-4 border-t">
+                    <h3 class="font-bold text-sm uppercase text-gray-500 mb-2">Instruction Schedule</h3>
+                    <div class="font-mono text-[10px] space-y-1 bg-gray-900 text-gray-400 p-3 rounded shadow-inner">
+                        <div id="code-vld1">ITER 1: vld   v1</div>
+                        <div id="code-vmul1">ITER 1: vmul  v3, v1, v2</div>
+                        <div id="code-vadd1">ITER 1: vadd  v5, v3, v4</div>
+                        <div class="border-t border-gray-700 my-1"></div>
+                        <div id="code-vld2">ITER 2: vld   v1</div>
+                        <div id="code-vmul2">ITER 2: vmul  v3, v1, v2</div>
+                        <div id="code-vadd2">ITER 2: vadd  v5, v3, v4</div>
+                    </div>
+                </div>
+
+                <div id="statusMessage" class="p-3 rounded-lg bg-blue-50 text-blue-800 text-xs italic leading-relaxed">
+                    Ready to start Iteration 1.
+                </div>
+            </div>
+
+            <!-- Main Visualization -->
+            <div class="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex gap-4">
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-400"></span> <span class="text-[10px] font-bold uppercase text-gray-500">Load</span></div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 bg-indigo-400 rotate-45" style="clip-path: polygon(50% 0%, 0% 100%, 100% 100%);"></span> <span class="text-[10px] font-bold uppercase text-gray-500">Multiply</span></div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 bg-orange-400"></span> <span class="text-[10px] font-bold uppercase text-gray-500">Add</span></div>
+                    </div>
+                    <div class="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                        8 lanes per unit | Elements stack over time
+                    </div>
+                </div>
+
+                <div class="relative w-full aspect-[16/9]">
+                    <svg id="vizSvg" viewBox="0 0 800 500" class="w-full h-full">
+                        <defs>
+                            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+                            </marker>
+                        </defs>
+
+                        <!-- Units -->
+                        <g id="units">
+                            <rect x="110" y="50" width="185" height="400" class="unit-box" />
+                            <text x="110" y="40" class="label-text text-sm">Load Unit</text>
+                            
+                            <rect x="320" y="120" width="185" height="330" class="unit-box" />
+                            <text x="320" y="110" class="label-text text-sm">Multiply Unit</text>
+
+                            <rect x="530" y="190" width="185" height="260" class="unit-box" />
+                            <text x="530" y="180" class="label-text text-sm">Add Unit</text>
+                        </g>
+
+                        <!-- Elements Containers -->
+                        <g id="elements-container"></g>
+
+                        <!-- Time Axis -->
+                        <line x1="40" y1="120" x2="40" y2="400" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" />
+                        <text x="50" y="250" font-style="italic" class="text-sm">time</text>
+
+                        <!-- Issue Pointer -->
+                        <g id="issue-pointer" transform="translate(40, 450)">
+                             <path d="M 0 0 L 80 0 L 100 20 L 80 40 L 0 40 L 20 20 Z" fill="#f8fafc" stroke="black" stroke-width="2" />
+                             <text x="25" y="25" font-size="10" font-weight="bold">ISSUE</text>
+                        </g>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const elementsGroup = document.getElementById('elements-container');
+        const playBtn = document.getElementById('playBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const cycleText = document.getElementById('cycleCountLarge');
+        const opsPerCycleText = document.getElementById('opsPerCycle');
+        const totalOpsLargeText = document.getElementById('totalOpsLarge');
+        const statusMsg = document.getElementById('statusMessage');
+
+        // State
+        let currentCycle = 0;
+        let isPlaying = false;
+        let timer = null;
+        
+        // Changed maxCycles to 10 as requested
+        const maxCycles = 10;
+        
+        let opsHistory = Array(maxCycles + 1).fill(0);
+
+        const LANES = 8;
+        const UNIT_X = { load: 110, mul: 320, add: 530 };
+        const UNIT_Y_START = { load: 50, mul: 120, add: 190 };
+        const CELL_SIZE = 22; 
+
+        // Iteration start cycles
+        const ITER1 = { vld: 1, vmul: 2, vadd: 3 };
+        const ITER2 = { vld: 5, vmul: 6, vadd: 7 };
+
+        function drawCycle(cycle) {
+            elementsGroup.innerHTML = '';
+            let opsThisCycle = 0;
+
+            const checkInstruction = (start, unit, color, iterIndex) => {
+                const elapsed = cycle - start;
+                if (elapsed >= 0) {
+                    for (let rowIdx = 0; rowIdx < 4; rowIdx++) {
+                        if (cycle >= start + rowIdx) {
+                            const globalRowIdx = (iterIndex * 4) + rowIdx;
+                            drawChunk(unit, globalRowIdx, color);
+                            
+                            if (cycle === start + rowIdx) {
+                                opsThisCycle += LANES;
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Iteration 1
+            checkInstruction(ITER1.vld, 'load', '#60a5fa', 0);
+            checkInstruction(ITER1.vmul, 'mul', '#818cf8', 0);
+            checkInstruction(ITER1.vadd, 'add', '#fb923c', 0);
+
+            // Iteration 2
+            checkInstruction(ITER2.vld, 'load', '#fde047', 1);
+            checkInstruction(ITER2.vmul, 'mul', '#c084fc', 1);
+            checkInstruction(ITER2.vadd, 'add', '#f472b6', 1);
+
+            // Update Statistics
+            opsHistory[cycle] = opsThisCycle;
+            const totalOps = opsHistory.slice(0, cycle + 1).reduce((a, b) => a + b, 0);
+
+            cycleText.innerText = cycle;
+            opsPerCycleText.innerText = opsThisCycle;
+            totalOpsLargeText.innerText = totalOps;
+
+            updateStatus(cycle, opsThisCycle);
+            updateCodeHighlight(cycle);
+        }
+
+        function drawChunk(unit, globalRowIdx, color) {
+            const startX = UNIT_X[unit];
+            const gridY = UNIT_Y_START[unit] + (globalRowIdx * CELL_SIZE);
+
+            for(let lane = 0; lane < LANES; lane++) {
+                const x = startX + (lane * CELL_SIZE) + 4; 
+                let el;
+                if(unit === 'load') el = createCircle(x + 10, gridY + 11, 8, color);
+                else if (unit === 'mul') el = createTriangle(x + 10, gridY + 11, 8, color);
+                else el = createSquare(x + 2, gridY + 2, 18, color);
+                elementsGroup.appendChild(el);
+            }
+        }
+
+        function createCircle(cx, cy, r, color) {
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", cx); circle.setAttribute("cy", cy); circle.setAttribute("r", r);
+            circle.setAttribute("fill", color); circle.setAttribute("stroke", "rgba(0,0,0,0.4)");
+            circle.setAttribute("stroke-width", "0.5");
+            return circle;
+        }
+
+        function createTriangle(cx, cy, r, color) {
+            const tri = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            const points = `${cx},${cy-r} ${cx-r},${cy+r} ${cx+r},${cy+r}`;
+            tri.setAttribute("points", points); tri.setAttribute("fill", color);
+            tri.setAttribute("stroke", "rgba(0,0,0,0.4)");
+            tri.setAttribute("stroke-width", "0.5");
+            return tri;
+        }
+
+        function createSquare(x, y, size, color) {
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("x", x); rect.setAttribute("y", y); rect.setAttribute("width", size); rect.setAttribute("height", size);
+            rect.setAttribute("fill", color); rect.setAttribute("stroke", "rgba(0,0,0,0.4)");
+            rect.setAttribute("stroke-width", "0.5");
+            return rect;
+        }
+
+        function updateStatus(cycle, ops) {
+            if (cycle === 0) statusMsg.innerText = "System ready.";
+            else if (cycle === 10) statusMsg.innerText = "Cycle 10: All 6 instructions for two iterations have finished issuing.";
+            else if (ops === 24) statusMsg.innerText = `Full Pipeline: 24 new operations started this cycle.`;
+            else statusMsg.innerText = `Cycle ${cycle}: Progressing through vector elements.`;
+        }
+
+        function updateCodeHighlight(cycle) {
+            const reset = (id) => document.getElementById(id).className = "px-1 transition-colors";
+            const active = (id, color) => document.getElementById(id).className = `px-1 transition-colors bg-${color}-600 text-white font-bold`;
+            
+            ["vld1", "vmul1", "vadd1", "vld2", "vmul2", "vadd2"].forEach(s => reset("code-" + s));
+
+            if (cycle >= ITER1.vld && cycle < ITER1.vld + 4) active("code-vld1", "blue");
+            if (cycle >= ITER1.vmul && cycle < ITER1.vmul + 4) active("code-vmul1", "indigo");
+            if (cycle >= ITER1.vadd && cycle < ITER1.vadd + 4) active("code-vadd1", "orange");
+            
+            if (cycle >= ITER2.vld && cycle < ITER2.vld + 4) active("code-vld2", "blue");
+            if (cycle >= ITER2.vmul && cycle < ITER2.vmul + 4) active("code-vmul2", "indigo");
+            if (cycle >= ITER2.vadd && cycle < ITER2.vadd + 4) active("code-vadd2", "orange");
+        }
+
+        function step() {
+            if (currentCycle < maxCycles) {
+                currentCycle++;
+                drawCycle(currentCycle);
+            } else { stop(); }
+        }
+
+        function play() {
+            if (currentCycle >= maxCycles) {
+                currentCycle = 0;
+                opsHistory.fill(0);
+            }
+            isPlaying = true;
+            playIcon.innerText = "⏸";
+            playText.innerText = "Pause";
+            timer = setInterval(step, 800);
+        }
+
+        function stop() {
+            isPlaying = false;
+            playIcon.innerText = "▶";
+            playText.innerText = "Play";
+            clearInterval(timer);
+        }
+
+        playBtn.addEventListener('click', () => isPlaying ? stop() : play());
+        stepBtn.addEventListener('click', () => { stop(); step(); });
+        resetBtn.addEventListener('click', () => { 
+            stop(); currentCycle = 0; opsHistory.fill(0); drawCycle(0); 
+        });
+
+        drawCycle(0);
+    </script>
+</body>
+</html>

@@ -64,10 +64,14 @@ General Matrix Multiply optimization techniques
 Deep dive into hardware design for machine learning
 
 - **CISC vs RISC vs VLIW:** Comparing CPU architecture philosophies
-- **TPU v1 Architecture:** Interactive block diagram and dataflow
+- **TPU v1 & v7 Architectures:** Interactive block diagrams and dataflow deep dives
 - **Systolic Arrays:** The heart of matrix multiplication units
 - **TPU Programming Model:** Visualizing CISC-like instruction sets for accelerators
 - **Vector Units:** SIMD and vector processing specialized for ML
+- **Array vs. Vector Processors:** Visualizing space-time mapping and execution differences
+- **Vector ILP:** Accumulation of vector chunks and pipeline throughput
+- **SIMT & GPU Warps:** Visualizing SPMD execution on hardware lanes
+- **Branch Divergence Profiler:** Measuring throughput and utilization in divergent kernels
 
 ### 🔥 Kernel Optimization
 

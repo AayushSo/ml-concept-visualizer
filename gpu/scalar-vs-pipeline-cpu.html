@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIPS Pipeline Visualizer Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .pipeline-box {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: slideIn 0.4s ease-out forwards;
+        }
+        .stage-if { background-color: #fbbf24; color: #000; border: 1px solid #d97706; }
+        .stage-id { background-color: #4ade80; color: #000; border: 1px solid #16a34a; }
+        .stage-ex { background-color: #f472b6; color: #000; border: 1px solid #db2777; }
+        .stage-mem { background-color: #60a5fa; color: #000; border: 1px solid #2563eb; }
+        .stage-wb { background-color: #a78bfa; color: #000; border: 1px solid #7c3aed; }
+        
+        .active-stage {
+            outline: 2px solid #000;
+            box-shadow: 0 0-12px rgba(0,0,0,0.2);
+            z-index: 20;
+        }
+
+        .hazard-glow {
+            box-shadow: 0 0 15px 5px rgba(239, 68, 68, 0.4);
+            border: 2px solid #ef4444 !important;
+            animation: pulse 1s infinite;
+        }
+
+        .source-highlight {
+            box-shadow: 0 0 15px 5px rgba(124, 58, 237, 0.4);
+            border: 2px solid #7c3aed !important;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+            100% { transform: scale(1); }
+        }
+
+        .grid-bg {
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        .instruction-arrow {
+            stroke: #7c3aed;
+            stroke-width: 1.5;
+            fill: none;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+            stroke-linecap: round;
+            stroke-dasharray: 4 3;
+        }
+
+        ::-webkit-scrollbar { height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-900">
+
+    <div class="max-w-7xl mx-auto p-4 md:p-8">
+        <header class="mb-6 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-200 pb-4">
+            <div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight italic">MIPS <span class="text-red-600">PIPELINE</span> EXPLORER</h1>
+                <p class="text-slate-500 font-medium text-sm">Visualizing Data Hazards & Sequential vs Pipelined Execution</p>
+            </div>
+            <div id="statusBadge" class="mt-4 md:mt-0 p-3 bg-slate-100 rounded-xl border border-slate-200 text-xs text-slate-500 font-bold uppercase tracking-wider">
+                Hazard Detection Disabled
+            </div>
+        </header>
+
+        <!-- Control Bar -->
+        <div class="flex flex-wrap gap-4 items-center mb-8 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+            <div class="flex gap-2 bg-slate-100 p-1 rounded-xl">
+                <button id="prevBtn" class="px-4 py-2 hover:bg-white hover:shadow-sm rounded-lg font-bold transition-all text-slate-600">Step Back</button>
+                <button id="playBtn" class="px-6 py-2 bg-slate-900 hover:bg-black text-white rounded-lg font-bold shadow-md transition-all">Play</button>
+                <button id="nextBtn" class="px-4 py-2 hover:bg-white hover:shadow-sm rounded-lg font-bold transition-all text-slate-600">Next Step</button>
+            </div>
+            
+            <div class="h-8 w-px bg-slate-200 mx-2 hidden md:block"></div>
+            
+            <div class="flex flex-col">
+                <span class="text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center">Clock Cycle</span>
+                <div class="text-xl font-mono font-black text-slate-800 text-center">
+                    <span id="cycleCount" class="text-red-600">0</span>
+                </div>
+            </div>
+
+            <div class="h-8 w-px bg-slate-200 mx-2 hidden md:block"></div>
+
+            <!-- Mode Selection -->
+            <div class="flex flex-wrap gap-6 items-center">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-bold text-slate-500 uppercase">Execution</span>
+                    <select id="modeSelect" class="bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="pipelined">Pipelined</option>
+                        <option value="sequential">Sequential</option>
+                    </select>
+                </div>
+
+                <div id="hazardToggleContainer" class="flex items-center gap-3">
+                    <span class="text-xs font-bold text-slate-500 uppercase">Hazards</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="hazardToggle" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="ml-auto">
+                <button id="resetBtn" class="px-4 py-2 text-slate-400 hover:text-red-600 font-bold transition-colors">Reset</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-4 gap-8">
+            
+            <!-- Main Pipeline Chart -->
+            <div class="xl:col-span-3 space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 overflow-x-auto grid-bg relative" id="pipelineContainer">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-sm font-black text-slate-400 uppercase tracking-widest">Execution Timeline</h2>
+                        <div id="legendItems" class="flex items-center gap-4 text-[10px] font-bold opacity-0 transition-opacity">
+                            <div class="flex items-center gap-1"><div class="w-2 h-2 bg-red-500 rounded-full"></div> Consumer</div>
+                            <div class="flex items-center gap-1"><div class="w-2 h-2 bg-purple-500 rounded-full"></div> Producer</div>
+                        </div>
+                    </div>
+                    
+                    <svg id="instructionSvg" class="absolute top-0 left-0 w-full h-full pointer-events-none z-30">
+                        <defs>
+                            <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">
+                                <path d="M 0 0 L 6 3 L 0 6 Z" fill="#7c3aed" />
+                            </marker>
+                        </defs>
+                    </svg>
+
+                    <div class="relative min-w-[1200px] pb-12 pt-8">
+                        <!-- Clock Headers -->
+                        <div class="flex mb-6 border-b border-slate-100 pb-3">
+                            <div class="w-56 flex-shrink-0 font-bold text-slate-300 uppercase text-[10px]">Instruction</div>
+                            <div id="clockLabels" class="flex flex-grow justify-between px-4"></div>
+                        </div>
+
+                        <!-- Pipeline Rows -->
+                        <div id="pipelineRows" class="space-y-8"></div>
+
+                        <!-- Current Cycle Line -->
+                        <div id="cycleMarker" class="absolute top-0 bottom-0 border-l-2 border-slate-900 pointer-events-none transition-all duration-300 z-10" style="left: 0; display: none;">
+                            <div class="bg-slate-900 text-white text-[9px] font-bold px-1 absolute -top-4 -translate-x-1/2 rounded">NOW</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metrics & Comparison -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-slate-900 p-6 rounded-3xl text-white col-span-2">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase mb-3">Architecture Comparison</h3>
+                        <div id="theoryText" class="text-sm text-slate-300 leading-relaxed italic">
+                            In <b>Sequential</b> mode, an instruction must complete all 5 stages before the next starts. In <b>Pipelined</b> mode, instructions overlap, aiming for an ideal CPI of 1.0.
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-3xl border border-slate-200">
+                        <div class="flex flex-col h-full justify-between">
+                            <div>
+                                <h3 class="text-[10px] font-black text-slate-400 uppercase">Performance Metrics</h3>
+                                <div class="text-3xl font-black text-slate-800" id="statCpi">0.00</div>
+                                <div class="text-[10px] text-slate-400 font-bold uppercase">Average CPI</div>
+                            </div>
+                            <div class="mt-4 pt-4 border-t border-slate-100">
+                                <div class="text-xl font-bold text-blue-600" id="statCycles">0</div>
+                                <div class="text-[10px] text-slate-400 font-bold uppercase">Total Cycles</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-black mb-4">Edit Code</h2>
+                    <div id="instructionList" class="space-y-3"></div>
+                </div>
+
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                    <h2 class="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 text-center">Stage Info</h2>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center justify-between p-2 rounded-xl stage-if"><span class="font-bold text-xs">IF</span> <span class="text-[9px]">Fetch</span></div>
+                        <div class="flex items-center justify-between p-2 rounded-xl stage-id"><span class="font-bold text-xs">ID</span> <span class="text-[9px]">Decode</span></div>
+                        <div class="flex items-center justify-between p-2 rounded-xl stage-ex"><span class="font-bold text-xs">EX</span> <span class="text-[9px]">ALU</span></div>
+                        <div class="flex items-center justify-between p-2 rounded-xl stage-mem"><span class="font-bold text-xs">MEM</span> <span class="text-[9px]">Memory</span></div>
+                        <div class="flex items-center justify-between p-2 rounded-xl stage-wb"><span class="font-bold text-xs">WB</span> <span class="text-[9px]">Writeback</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STAGES = ['IF', 'ID', 'EX', 'MEM', 'WB'];
+        const STAGE_CLASSES = ['stage-if', 'stage-id', 'stage-ex', 'stage-mem', 'stage-wb'];
+        
+        let currentCycle = 0;
+        let isPlaying = false;
+        let timer = null;
+        let hazardDetectionEnabled = false;
+        let executionMode = 'pipelined'; // 'pipelined' or 'sequential'
+        
+        const hazardousInstructions = [
+            { id: 0, op: 'ADDI', rd: '$t0', rs: '$s1', rt: '10' },
+            { id: 1, op: 'ADD',  rd: '$s2', rs: '$t0', rt: '$s1' }, 
+            { id: 2, op: 'SUB',  rd: '$t1', rs: '$t0', rt: '$s2' },
+            { id: 3, op: 'LW',   rd: '$t2', rs: '4',   rt: '($s2)' },
+            { id: 4, op: 'ADD',  rd: '$s4', rs: '$t2', rt: '$t1' }
+        ];
+
+        const cleanInstructions = [
+            { id: 0, op: 'ADDI', rd: '$t0', rs: '$s1', rt: '10' },
+            { id: 1, op: 'ADD',  rd: '$s2', rs: '$s3', rt: '$s4' }, 
+            { id: 2, op: 'SUB',  rd: '$t1', rs: '$s5', rt: '$s6' },
+            { id: 3, op: 'LW',   rd: '$t2', rs: '4',   rt: '($s7)' },
+            { id: 4, op: 'OR',   rd: '$s0', rs: '$t3', rt: '$t4' }
+        ];
+
+        let instructions = [...cleanInstructions];
+
+        const MAX_CYCLES = 32;
+
+        function init() {
+            renderInstructionEditor();
+            renderClockLabels();
+            render();
+        }
+
+        function renderClockLabels() {
+            const clockLabels = document.getElementById('clockLabels');
+            clockLabels.innerHTML = '';
+            for (let i = 1; i <= MAX_CYCLES; i++) {
+                const div = document.createElement('div');
+                div.className = 'w-14 text-center text-[10px] font-black text-slate-300 font-mono';
+                div.textContent = `C${i}`;
+                clockLabels.appendChild(div);
+            }
+        }
+
+        function renderInstructionEditor() {
+            const list = document.getElementById('instructionList');
+            list.innerHTML = '';
+            instructions.forEach((inst, idx) => {
+                const div = document.createElement('div');
+                div.className = `p-2 rounded-xl bg-slate-50 border border-slate-100`;
+                div.innerHTML = `
+                    <div class="flex gap-2">
+                        <input type="text" value="${inst.op}" onchange="updateInst(${idx}, 'op', this.value)" class="w-12 text-xs font-bold bg-transparent outline-none">
+                        <input type="text" value="${inst.rd}" onchange="updateInst(${idx}, 'rd', this.value)" class="w-8 text-xs font-mono border rounded px-1 bg-white">
+                        <input type="text" value="${inst.rs}" onchange="updateInst(${idx}, 'rs', this.value)" class="w-8 text-xs font-mono border rounded px-1 bg-white">
+                        <input type="text" value="${inst.rt}" onchange="updateInst(${idx}, 'rt', this.value)" class="w-8 text-xs font-mono border rounded px-1 bg-white">
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function getOperandDependencies(idx) {
+            // No hazards in sequential mode
+            if (executionMode === 'sequential' || !hazardDetectionEnabled) return { rs: null, rt: null };
+            
+            const current = instructions[idx];
+            let deps = { rs: null, rt: null };
+            
+            for (let i = 1; i <= 3; i++) {
+                const prev = instructions[idx - i];
+                if (!prev) continue;
+                if (deps.rs === null && current.rs === prev.rd) deps.rs = idx - i;
+                const isRtUsedAsSource = !current.op.includes('I') && current.op !== 'LW';
+                if (deps.rt === null && isRtUsedAsSource && current.rt === prev.rd) deps.rt = idx - i;
+            }
+            return deps;
+        }
+
+        function checkIsProducerForHazards(idx) {
+            if (executionMode === 'sequential' || !hazardDetectionEnabled) return null;
+            let consumers = [];
+            for (let next = idx + 1; next < Math.min(idx + 4, instructions.length); next++) {
+                const nextDeps = getOperandDependencies(next);
+                if (nextDeps.rs === idx || nextDeps.rt === idx) consumers.push(next);
+            }
+            return consumers.length > 0 ? consumers : null;
+        }
+
+        window.updateInst = (idx, field, val) => {
+            instructions[idx][field] = val;
+            render();
+        };
+
+        function render() {
+            document.getElementById('cycleCount').textContent = currentCycle;
+            const rowsContainer = document.getElementById('pipelineRows');
+            rowsContainer.innerHTML = '';
+            const instructionSvg = document.getElementById('instructionSvg');
+            const defs = instructionSvg.querySelector('defs');
+            instructionSvg.innerHTML = '';
+            instructionSvg.appendChild(defs);
+
+            const badge = document.getElementById('statusBadge');
+            const theoryText = document.getElementById('theoryText');
+            const legendItems = document.getElementById('legendItems');
+
+            // Update UI State based on toggles
+            if (executionMode === 'sequential') {
+                badge.textContent = "Sequential Execution Mode";
+                badge.className = "mt-4 md:mt-0 p-3 bg-blue-50 rounded-xl border border-blue-100 text-xs text-blue-800 font-bold uppercase tracking-wider";
+                theoryText.innerHTML = "In <b>Sequential Execution</b>, the processor must finish all 5 stages of an instruction before fetching the next. This results in a <b>CPI of 5.0</b>.";
+                document.getElementById('hazardToggleContainer').classList.add('opacity-30', 'pointer-events-none');
+            } else {
+                document.getElementById('hazardToggleContainer').classList.remove('opacity-30', 'pointer-events-none');
+                if (hazardDetectionEnabled) {
+                    badge.textContent = "RAW Dependency Tracking Active";
+                    badge.className = "mt-4 md:mt-0 p-3 bg-red-50 rounded-xl border border-red-100 text-xs text-red-800 font-bold uppercase tracking-wider";
+                    theoryText.innerHTML = "In <b>Pipelined Mode</b>, instructions overlap. When <b>Hazard Detection</b> is on, we identify Data Hazards where an instruction depends on a result not yet written back.";
+                } else {
+                    badge.textContent = "Hazard Detection Disabled";
+                    badge.className = "mt-4 md:mt-0 p-3 bg-slate-100 rounded-xl border border-slate-200 text-xs text-slate-500 font-bold uppercase tracking-wider";
+                    theoryText.innerHTML = "Hazard detection is currently <b>disabled</b>. Use the toggle to see potential data dependencies in the code.";
+                }
+            }
+            
+            if (hazardDetectionEnabled && executionMode === 'pipelined') legendItems.classList.remove('opacity-0');
+            else legendItems.classList.add('opacity-0');
+
+            let maxActiveCycle = 0;
+
+            instructions.forEach((inst, i) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center h-12 relative';
+                row.id = `row-${i}`;
+
+                const deps = getOperandDependencies(i);
+                const isHazardActive = (deps.rs !== null || deps.rt !== null);
+                const consumingIndices = checkIsProducerForHazards(i);
+                const isProducingForHazard = consumingIndices !== null;
+
+                const label = document.createElement('div');
+                label.className = 'w-56 flex-shrink-0 pr-6 relative z-40';
+                
+                const wrapRd = (val, isProducing) => {
+                    const cls = isProducing ? 'bg-purple-100 text-purple-700 font-bold border-purple-200' : 'text-slate-400';
+                    return `<span id="rd-${i}" class="${cls} px-0.5 rounded border inline-block min-w-[24px] text-center transition-colors">
+                        ${val}
+                    </span>`;
+                };
+
+                const wrapOp = (val, isDep, type) => {
+                    const cls = isDep ? 'bg-red-100 text-red-700 font-bold border-red-200' : 'text-slate-700';
+                    return `<span id="${type}-${i}" class="${cls} px-0.5 rounded border inline-block min-w-[24px] text-center transition-colors">
+                        ${val}
+                    </span>`;
+                };
+
+                label.innerHTML = `
+                    <div class="text-[9px] font-black text-slate-300 uppercase leading-none mb-1">Instr ${i+1}</div>
+                    <div class="text-xs font-mono font-medium flex items-center gap-1">
+                        <span class="text-blue-600 font-bold w-12 text-left">${inst.op}</span> 
+                        ${wrapRd(inst.rd, isProducingForHazard)}, 
+                        ${wrapOp(inst.rs, deps.rs !== null, 'rs')}, 
+                        ${wrapOp(inst.rt, deps.rt !== null, 'rt')}
+                    </div>
+                `;
+                row.appendChild(label);
+
+                const blocksContainer = document.createElement('div');
+                blocksContainer.className = 'flex flex-grow px-4 relative';
+                
+                // Key Logic: Calculate start cycle based on execution mode
+                const startCycle = executionMode === 'sequential' ? i * 5 : i;
+
+                for (let c = 0; c < MAX_CYCLES; c++) {
+                    const block = document.createElement('div');
+                    block.className = 'w-14 h-10 flex-shrink-0 flex items-center justify-center relative';
+                    const relativeStage = c - startCycle;
+                    
+                    if (relativeStage >= 0 && relativeStage < 5 && c < currentCycle) {
+                        const inner = document.createElement('div');
+                        const isCurrentActive = (c === currentCycle - 1);
+                        const isHazardSink = relativeStage === 1 && isHazardActive;
+                        const isHazardSource = relativeStage === 4 && isProducingForHazard;
+
+                        inner.className = `w-12 h-8 rounded-lg shadow-sm flex items-center justify-center text-[10px] font-black pipeline-box ${STAGE_CLASSES[relativeStage]} ${isCurrentActive ? 'active-stage' : ''} ${isHazardSink ? 'hazard-glow' : ''} ${isHazardSource ? 'source-highlight' : ''}`;
+                        inner.textContent = STAGES[relativeStage];
+                        
+                        if (isHazardSink) {
+                            const tag = document.createElement('div');
+                            tag.className = 'absolute -top-6 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[8px] font-black px-1 rounded shadow-sm z-40 whitespace-nowrap';
+                            tag.textContent = 'STALL REQ.';
+                            block.appendChild(tag);
+                        }
+                        block.appendChild(inner);
+                        maxActiveCycle = Math.max(maxActiveCycle, c + 1);
+                    }
+                    blocksContainer.appendChild(block);
+                }
+                row.appendChild(blocksContainer);
+                rowsContainer.appendChild(row);
+            });
+
+            // Update Metrics
+            const totalInstructions = instructions.length;
+            const totalCycles = currentCycle > 0 ? currentCycle : 0;
+            const cpi = (totalInstructions > 0 && totalCycles > 0) ? (totalCycles / Math.min(totalInstructions, Math.floor(currentCycle/1.5) + 1)).toFixed(2) : "0.00";
+            
+            // Simplified CPI Calculation for visual comparison:
+            // Pipelined (N=5) finishes in 9 cycles. CPI = 9/5 = 1.8.
+            // Sequential (N=5) finishes in 25 cycles. CPI = 25/5 = 5.0.
+            let displayCpi = "0.00";
+            if (currentCycle > 0) {
+                if (executionMode === 'sequential') {
+                    displayCpi = "5.00";
+                } else {
+                    const finalCycle = 5 + (totalInstructions - 1);
+                    displayCpi = (Math.min(currentCycle, finalCycle) / totalInstructions).toFixed(2);
+                }
+            }
+
+            document.getElementById('statCpi').textContent = displayCpi;
+            document.getElementById('statCycles').textContent = currentCycle;
+
+            if (hazardDetectionEnabled && executionMode === 'pipelined') {
+                setTimeout(() => drawDependencyArrows(instructions), 50);
+            }
+
+            const marker = document.getElementById('cycleMarker');
+            if (currentCycle > 0 && currentCycle <= MAX_CYCLES) {
+                marker.style.display = 'block';
+                marker.style.left = `${224 + (currentCycle * 56) - 28}px`; 
+            } else marker.style.display = 'none';
+        }
+
+        function drawDependencyArrows(instrSet) {
+            const svg = document.getElementById('instructionSvg');
+            const containerRect = document.getElementById('pipelineContainer').getBoundingClientRect();
+
+            instrSet.forEach((_, i) => {
+                const deps = getOperandDependencies(i);
+                
+                const draw = (producerIdx, consumerIdx, type) => {
+                    const prodEl = document.getElementById(`rd-${producerIdx}`);
+                    const consEl = document.getElementById(`${type}-${consumerIdx}`);
+                    if (!prodEl || !consEl) return;
+
+                    const pRect = prodEl.getBoundingClientRect();
+                    const cRect = consEl.getBoundingClientRect();
+
+                    const x1 = pRect.left + (pRect.width / 2) - containerRect.left;
+                    const y1 = pRect.bottom - containerRect.top;
+                    const x2 = cRect.left + (cRect.width / 2) - containerRect.left;
+                    const y2 = cRect.top - containerRect.top;
+
+                    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    const dist = consumerIdx - producerIdx;
+                    const controlOffset = 20 + (dist * 10);
+                    const d = `M ${x1} ${y1} C ${x1} ${y1 + controlOffset}, ${x2} ${y2 - controlOffset}, ${x2} ${y2}`;
+                    
+                    path.setAttribute("d", d);
+                    path.setAttribute("class", "instruction-arrow");
+                    path.setAttribute("marker-end", "url(#arrowhead)");
+                    svg.appendChild(path);
+                };
+
+                if (deps.rs !== null) draw(deps.rs, i, 'rs');
+                if (deps.rt !== null) draw(deps.rt, i, 'rt');
+            });
+        }
+
+        function stepNext() {
+            const limit = executionMode === 'sequential' ? instructions.length * 5 : 5 + instructions.length - 1;
+            if (currentCycle < limit) {
+                currentCycle++;
+                render();
+            } else pause();
+        }
+
+        function stepPrev() {
+            if (currentCycle > 0) {
+                currentCycle--;
+                render();
+            }
+        }
+
+        function togglePlay() {
+            if (isPlaying) pause();
+            else play();
+        }
+
+        function play() {
+            const limit = executionMode === 'sequential' ? instructions.length * 5 : 5 + instructions.length - 1;
+            if (currentCycle >= limit) currentCycle = 0;
+            isPlaying = true;
+            document.getElementById('playBtn').textContent = 'Pause';
+            timer = setInterval(stepNext, 800);
+        }
+
+        function pause() {
+            isPlaying = false;
+            document.getElementById('playBtn').textContent = 'Play';
+            clearInterval(timer);
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', () => { pause(); stepNext(); });
+        document.getElementById('prevBtn').addEventListener('click', () => { pause(); stepPrev(); });
+        document.getElementById('playBtn').addEventListener('click', togglePlay);
+        document.getElementById('resetBtn').addEventListener('click', () => { pause(); currentCycle = 0; render(); });
+
+        document.getElementById('hazardToggle').addEventListener('change', (e) => {
+            hazardDetectionEnabled = e.target.checked;
+            pause();
+            currentCycle = 0;
+            instructions = hazardDetectionEnabled ? [...hazardousInstructions] : [...cleanInstructions];
+            renderInstructionEditor();
+            render();
+        });
+
+        document.getElementById('modeSelect').addEventListener('change', (e) => {
+            executionMode = e.target.value;
+            pause();
+            currentCycle = 0;
+            render();
+        });
+
+        window.onload = init;
+    </script>
+</body>
+</html>

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Flynn's Taxonomy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes flow {
+            from { transform: translateX(-20px); opacity: 0; }
+            50% { opacity: 1; }
+            to { transform: translateX(280px); opacity: 0; }
+        }
+        .matrix-card:hover {
+            transform: translateY(-4px);
+            transition: all 0.3s ease;
+        }
+        .active-card {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+            box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.2);
+        }
+        .particle-text {
+            font-family: sans-serif;
+            font-weight: bold;
+            font-size: 8px;
+            pointer-events: none;
+            user-select: none;
+        }
+        .code-font {
+            font-family: 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', monospace;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-900">
+
+    <div class="max-w-6xl mx-auto px-4 py-12">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-extrabold text-slate-800 mb-4">Flynn's Taxonomy</h1>
+            <p class="text-lg text-slate-600 max-w-2xl mx-auto">
+                A classification of computer architectures based on the number of concurrent <b>Instruction</b> and <b>Data</b> streams.
+            </p>
+        </header>
+
+        <!-- Main Interaction Area -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- Left: Selection (Col 1-4) -->
+            <div class="lg:col-span-4 space-y-4">
+                <h2 class="text-sm font-bold uppercase tracking-wider text-slate-400 mb-2">Select Architecture</h2>
+                
+                <div id="grid-container" class="grid grid-cols-2 gap-4">
+                    <button onclick="selectType('SISD')" id="btn-SISD" class="matrix-card p-4 bg-white border-2 border-slate-200 rounded-xl text-left transition-all active-card">
+                        <span class="block text-xl font-bold text-blue-600">SISD</span>
+                        <span class="text-[10px] text-slate-500 font-medium uppercase">Single / Single</span>
+                    </button>
+                    
+                    <button onclick="selectType('SIMD')" id="btn-SIMD" class="matrix-card p-4 bg-white border-2 border-slate-200 rounded-xl text-left transition-all">
+                        <span class="block text-xl font-bold text-indigo-600">SIMD</span>
+                        <span class="text-[10px] text-slate-500 font-medium uppercase">Single / Multi</span>
+                    </button>
+
+                    <button onclick="selectType('MISD')" id="btn-MISD" class="matrix-card p-4 bg-white border-2 border-slate-200 rounded-xl text-left transition-all">
+                        <span class="block text-xl font-bold text-emerald-600">MISD</span>
+                        <span class="text-[10px] text-slate-500 font-medium uppercase">Multi / Single</span>
+                    </button>
+
+                    <button onclick="selectType('MIMD')" id="btn-MIMD" class="matrix-card p-4 bg-white border-2 border-slate-200 rounded-xl text-left transition-all">
+                        <span class="block text-xl font-bold text-rose-600">MIMD</span>
+                        <span class="text-[10px] text-slate-500 font-medium uppercase">Multi / Multi</span>
+                    </button>
+                </div>
+
+                <!-- Info Panel -->
+                <div id="info-panel" class="mt-6 bg-slate-800 text-white p-6 rounded-xl shadow-inner border border-slate-700">
+                    <h3 id="info-title" class="text-2xl font-bold mb-2">SISD</h3>
+                    <p id="info-desc" class="text-slate-300 text-sm mb-0 leading-relaxed"></p>
+                </div>
+            </div>
+
+            <!-- Right: Animation & Visuals (Col 5-12) -->
+            <div class="lg:col-span-8 flex flex-col gap-6">
+                <!-- Animation Stage -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 flex flex-col items-center min-h-[550px] relative overflow-hidden">
+                    
+                    <!-- Context Header -->
+                    <div class="w-full mb-6 border-b border-slate-100 pb-4 flex justify-between items-end">
+                        <div>
+                            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-400 mb-1">Live Stream Visualization</h2>
+                            <div id="active-example-title" class="text-xl font-bold text-slate-800">Conventional CPU</div>
+                        </div>
+                        <div id="hardware-chips" class="flex gap-2">
+                            <!-- Chips injected here -->
+                        </div>
+                    </div>
+
+                    <!-- SVG Stage -->
+                    <svg id="animation-stage" width="500" height="280" viewBox="0 0 500 280" class="w-full h-auto max-w-xl">
+                        <defs>
+                            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                            </marker>
+                        </defs>
+
+                        <!-- Labels -->
+                        <text x="20" y="20" class="text-[10px] font-bold fill-slate-300 uppercase">Instructions (I)</text>
+                        <text x="20" y="260" class="text-[10px] font-bold fill-slate-300 uppercase">Data (D)</text>
+                        <text x="440" y="145" class="text-[10px] font-bold fill-slate-300 uppercase">Results</text>
+
+                        <g id="dynamic-content"></g>
+                    </svg>
+
+                    <!-- Example Context Footer -->
+                    <div class="mt-8 w-full bg-slate-50 rounded-xl p-5 border border-slate-100">
+                        <div class="flex items-start gap-4">
+                            <div id="context-icon" class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 11h10"/><path d="M7 15h10"/><path d="M7 7h10"/></svg>
+                            </div>
+                            <div class="flex-1">
+                                <span class="text-[10px] font-bold text-blue-500 uppercase tracking-widest block mb-1">Instruction Logic</span>
+                                <div id="viz-case-study" class="text-sm text-slate-700 leading-relaxed font-medium"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Legend -->
+                    <div class="flex flex-wrap justify-center gap-6 mt-6 text-xs font-medium border-t border-slate-50 pt-4 w-full">
+                        <div class="flex items-center gap-2">
+                            <div class="w-4 h-4 rounded bg-orange-400 flex items-center justify-center text-white font-bold text-[7px]">I</div>
+                            <span>Instruction</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="w-4 h-4 rounded bg-blue-400 flex items-center justify-center text-white font-bold text-[7px]">D</div>
+                            <span>Data Element</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="w-6 h-6 border-2 border-slate-300 rounded flex items-center justify-center font-bold text-[8px] bg-slate-50">PU</div>
+                            <span>Processor/Core</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const taxonomyData = {
+            SISD: {
+                title: "SISD",
+                context: "Sequential Processing",
+                desc: "The classic sequential computer. A single processor executes one instruction at a time on one data item. It follows the deterministic von Neumann model.",
+                examples: ["Intel 8080", "6502", "Single-core PCs"],
+                instructionCode: "ADD R1, R2, R3",
+                caseStudy: "The CPU fetches a single <code>ADD</code> command. It operates on one data pair (R2, R3) and stores the result in R1. To add the next pair, it must fetch a new instruction.",
+                color: "#3b82f6",
+                puCount: 1,
+                instCount: 1,
+                dataCount: 1
+            },
+            SIMD: {
+                title: "SIMD",
+                context: "Vector/Array Processing",
+                desc: "One instruction stream controls multiple processing elements. Each element executes the exact same command but on different pieces of data.",
+                examples: ["Modern GPUs", "Intel AVX-512", "ARM Neon"],
+                instructionCode: "VADD V1, V2, 10",
+                caseStudy: "One <code>VADD</code> (Vector Add) instruction is broadcast to all cores. Each core applies 'add 10' to its specific pixel (Data) simultaneously in one clock cycle.",
+                color: "#6366f1",
+                puCount: 3,
+                instCount: 1,
+                dataCount: 3
+            },
+            MISD: {
+                title: "MISD",
+                context: "Redundant/Fault-Tolerant",
+                desc: "Rarely used for speed. Multiple instructions are applied to the same data stream, usually for verification in mission-critical environments.",
+                examples: ["Space Shuttle", "Autonomous Braking", "Voter Systems"],
+                instructionCode: "ALGO_A(D), ALGO_B(D), ALGO_C(D)",
+                caseStudy: "Three <i>different</i> algorithms (Instructions) analyze the same sensor reading (Data). This provides redundancy: the system only acts if the results match.",
+                color: "#10b981",
+                puCount: 3,
+                instCount: 3,
+                dataCount: 1
+            },
+            MIMD: {
+                title: "MIMD",
+                context: "Distributed Computing",
+                desc: "Total independence. Multiple processors execute different instruction streams on different data streams. This is modern multi-core computing.",
+                examples: ["i9-14900K", "AWS Clusters", "Supercomputers"],
+                instructionCode: "THREAD_1: LOAD, THREAD_2: STORE",
+                caseStudy: "True Parallelism. Core 1 runs <code>LOAD</code> on user data A while Core 2 runs <code>STORE</code> on system data B. Neither relies on the other's instruction or data.",
+                color: "#f43f5e",
+                puCount: 3,
+                instCount: 3,
+                dataCount: 3
+            }
+        };
+
+        const ANIM_DURATION = "5.5s"; 
+
+        function selectType(type) {
+            document.querySelectorAll('.matrix-card').forEach(btn => btn.classList.remove('active-card'));
+            document.getElementById(`btn-${type}`).classList.add('active-card');
+
+            const data = taxonomyData[type];
+            document.getElementById('info-title').innerText = data.title;
+            document.getElementById('info-title').style.color = data.color;
+            document.getElementById('info-desc').innerText = data.desc;
+            
+            // Update the Visualization Card Details
+            document.getElementById('active-example-title').innerText = data.context;
+            document.getElementById('context-icon').style.backgroundColor = data.color;
+
+            // Updated code formatting for the case study
+            document.getElementById('viz-case-study').innerHTML = `
+                <div class="mb-2">
+                    <code class="px-2 py-1 bg-slate-200 text-slate-800 rounded text-xs font-bold border border-slate-300 block w-fit">
+                        ${data.instructionCode}
+                    </code>
+                </div>
+                <p class="text-xs text-slate-600 italic">${data.caseStudy}</p>
+            `;
+
+            const chips = document.getElementById('hardware-chips');
+            chips.innerHTML = data.examples.map(ex => 
+                `<span class="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-[9px] text-slate-500 font-bold uppercase tracking-tighter">${ex}</span>`
+            ).join('');
+
+            renderAnimation(type);
+        }
+
+        function renderAnimation(type) {
+            const container = document.getElementById('dynamic-content');
+            const data = taxonomyData[type];
+            let html = '';
+
+            const centerY = 140;
+            const startX = 60;
+            const endX = 440;
+            const puX = 250;
+
+            const puSpacing = 70;
+            const totalPuHeight = (data.puCount - 1) * puSpacing;
+            const puStartY = centerY - (totalPuHeight / 2);
+
+            // 1. Draw Processors
+            for (let i = 0; i < data.puCount; i++) {
+                const y = puStartY + (i * puSpacing);
+                html += `
+                    <rect x="${puX - 30}" y="${y - 25}" width="60" height="50" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2" />
+                    <text x="${puX}" y="${y + 5}" text-anchor="middle" class="text-[9px] font-extrabold fill-slate-400 uppercase tracking-tighter">CORE ${i+1}</text>
+                `;
+            }
+
+            // 2. Instruction Streams (Orange 'I')
+            if (type === 'SIMD') {
+                const iY = 50;
+                html += `<path d="M ${startX} ${iY} L 150 ${iY} L 150 ${puStartY} L ${puX-30} ${puStartY}" fill="none" stroke="#fb923c" stroke-width="1.5" stroke-dasharray="4,2" />`;
+                for(let i=0; i<data.puCount; i++) {
+                    const y = puStartY + (i * puSpacing);
+                    html += `<path d="M 150 ${iY} L 150 ${y} L ${puX-30} ${y}" fill="none" stroke="#fb923c" stroke-width="1.5" />`;
+                    for(let p=0; p<4; p++) {
+                        const delay = p * 1.35;
+                        html += `
+                        <g>
+                            <circle r="9" fill="#fb923c" />
+                            <text dy=".35em" text-anchor="middle" fill="white" class="particle-text">I</text>
+                            <animateMotion dur="${ANIM_DURATION}" repeatCount="indefinite" path="M ${startX} ${iY} L 150 ${iY} L 150 ${y} L ${puX} ${y}" begin="${delay}s" />
+                        </g>`;
+                    }
+                }
+            } else {
+                const instStartY = (data.instCount === 1) ? 50 : puStartY;
+                for (let i = 0; i < data.instCount; i++) {
+                    const yStart = (data.instCount === 1) ? 50 : puStartY + (i * puSpacing);
+                    const yEnd = (type === 'MISD' || type === 'MIMD') ? puStartY + (i * puSpacing) : puStartY;
+                    
+                    html += `<path d="M ${startX} ${yStart} L ${puX-30} ${yEnd}" fill="none" stroke="#fb923c" stroke-width="1.5" />`;
+                    for(let p=0; p<4; p++) {
+                        const delay = p * 1.35;
+                        html += `
+                        <g>
+                            <circle r="9" fill="#fb923c" />
+                            <text dy=".35em" text-anchor="middle" fill="white" class="particle-text">I</text>
+                            <animateMotion dur="${ANIM_DURATION}" repeatCount="indefinite" path="M ${startX} ${yStart} L ${puX} ${yEnd}" begin="${delay}s" />
+                        </g>`;
+                    }
+                }
+            }
+
+            // 3. Data Streams (Blue 'D')
+            if (type === 'MISD') {
+                const dY = 230;
+                for(let i=0; i<data.puCount; i++) {
+                    const y = puStartY + (i * puSpacing);
+                    html += `<path d="M ${startX} ${dY} L 150 ${dY} L 150 ${y} L ${puX-30} ${y}" fill="none" stroke="#60a5fa" stroke-width="1.5" />`;
+                    for(let p=0; p<4; p++) {
+                        const delay = p * 1.35 + 0.6;
+                        html += `
+                        <g>
+                            <circle r="9" fill="#60a5fa" />
+                            <text dy=".35em" text-anchor="middle" fill="white" class="particle-text">D</text>
+                            <animateMotion dur="${ANIM_DURATION}" repeatCount="indefinite" path="M ${startX} ${dY} L 150 ${dY} L 150 ${y} L ${puX} ${y}" begin="${delay}s" />
+                        </g>`;
+                    }
+                }
+            } else {
+                const dataStartY = (data.dataCount === 1) ? 230 : puStartY;
+                for (let i = 0; i < data.dataCount; i++) {
+                    const yStart = (data.dataCount === 1) ? 230 : puStartY + (i * puSpacing);
+                    const yEnd = puStartY + (i * puSpacing);
+
+                    html += `<path d="M ${startX} ${yStart} L ${puX-30} ${yEnd}" fill="none" stroke="#60a5fa" stroke-width="1.5" />`;
+                    for(let p=0; p<4; p++) {
+                        const delay = p * 1.35 + 0.6;
+                        html += `
+                        <g>
+                            <circle r="9" fill="#60a5fa" />
+                            <text dy=".35em" text-anchor="middle" fill="white" class="particle-text">D</text>
+                            <animateMotion dur="${ANIM_DURATION}" repeatCount="indefinite" path="M ${startX} ${yStart} L ${puX} ${yEnd}" begin="${delay}s" />
+                        </g>`;
+                    }
+                }
+            }
+
+            // 4. Output Results
+            for (let i = 0; i < data.puCount; i++) {
+                const y = puStartY + (i * puSpacing);
+                html += `<path d="M ${puX+30} ${y} L ${endX} ${y}" fill="none" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arrowhead)" />`;
+                for(let p=0; p<2; p++) {
+                    html += `<circle r="4" fill="#94a3b8">
+                        <animateMotion dur="${ANIM_DURATION}" repeatCount="indefinite" path="M ${puX+30} ${y} L ${endX} ${y}" begin="${p*2.75 + 1.8}s" />
+                    </circle>`;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        window.onload = () => selectType('SISD');
+    </script>
+</body>
+</html>

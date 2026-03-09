@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Array vs. Vector vs. MIPS Pipeline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .active-btn {
+            background-color: #6366f1 !important;
+            color: white !important;
+            box-shadow: 0 4px 14px 0 rgba(99, 102, 241, 0.39);
+        }
+        .data-element {
+            transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+        }
+        .lane-box {
+            stroke-dasharray: 6;
+            fill: #f8fafc;
+            stroke: #cbd5e1;
+            stroke-width: 2;
+            rx: 16;
+        }
+        .stage-active {
+            stroke: #6366f1 !important;
+            stroke-width: 3px !important;
+            fill: #eef2ff !important;
+            filter: drop-shadow(0 4px 6px rgba(99, 102, 241, 0.1));
+        }
+        .ram-active {
+            fill: #dcfce7 !important;
+            stroke: #22c55e !important;
+            stroke-width: 2.5px !important;
+        }
+        .stage-rect {
+            transition: all 0.4s ease;
+        }
+        .control-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+        }
+    </style>
+</head>
+<body class="bg-[#f1f5f9] min-h-screen text-slate-900">
+
+    <div class="max-w-7xl mx-auto px-6 py-12">
+        <!-- Header Section -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+            <div>
+                <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">Architectural Visualizer</h1>
+                <p class="text-slate-500 text-base">Comparing $\text{Scalar}$, $\text{Time-Parallel (Vector)}$, and $\text{Space-Parallel (Array)}$ architectures.</p>
+            </div>
+            
+            <div class="flex flex-col items-end gap-4 control-panel p-2 rounded-2xl border border-white shadow-sm">
+                <div class="bg-slate-200/50 p-1 rounded-xl flex gap-1">
+                    <button id="btn-mips" onclick="changeMode('mips')" class="px-5 py-2 rounded-lg font-bold text-xs transition-all active-btn text-slate-600">MIPS (SCALAR)</button>
+                    <button id="btn-vector" onclick="changeMode('vector')" class="px-5 py-2 rounded-lg font-bold text-xs transition-all text-slate-600 hover:bg-white/50">VECTOR (SIMD)</button>
+                    <button id="btn-array" onclick="changeMode('array')" class="px-5 py-2 rounded-lg font-bold text-xs transition-all text-slate-600 hover:bg-white/50">ARRAY (SIMD)</button>
+                </div>
+                <div class="flex gap-2 w-full">
+                    <button onclick="prevStep()" class="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-30" id="prev-btn">Back</button>
+                    <button onclick="nextStep()" class="flex-[2] px-4 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 disabled:opacity-30" id="next-btn">Next Step</button>
+                    <button onclick="reset()" class="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm text-slate-400 hover:text-slate-600 transition-colors">Reset</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Left: Visualization Stage -->
+            <div class="lg:col-span-8 bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 p-10 flex flex-col items-center min-h-[650px]">
+                <div class="mb-8 text-center">
+                    <span id="step-counter" class="inline-block px-3 py-1 bg-slate-100 rounded-full text-[12px] font-extrabold uppercase tracking-widest text-slate-500 mb-3 border border-slate-200">Cycle 0</span>
+                    <h2 id="current-action" class="text-3xl font-black text-slate-900 uppercase tracking-tight">System Idle</h2>
+                </div>
+
+                <svg id="viz-svg" width="700" height="480" viewBox="0 0 700 480" class="w-full h-auto overflow-visible">
+                    <!-- Labels -->
+                    <text x="350" y="0" text-anchor="middle" class="text-[12px] font-extrabold fill-slate-300 uppercase tracking-[0.2em]">Input Memory (A[3:0])</text>
+                    <text x="350" y="470" text-anchor="middle" class="text-[12px] font-extrabold fill-slate-300 uppercase tracking-[0.2em]">Output Memory (A[3:0])</text>
+
+                    <g id="ram-top-group"></g>
+                    <g id="ram-bottom-group"></g>
+                    <g id="arch-group"></g>
+                    <g id="data-particles-group"></g>
+                </svg>
+            </div>
+
+            <!-- Right: Information Sidebar -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Program Card -->
+                <div class="bg-white p-7 rounded-[2rem] shadow-sm border border-slate-100">
+                    <div class="flex items-center gap-3 mb-5">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                        </div>
+                        <h3 class="text-sm font-black uppercase tracking-wider text-slate-400" id="code-sidebar-title">LAMS Logic</h3>
+                    </div>
+                    <div id="program-code" class="mono bg-slate-50 p-5 rounded-2xl border border-slate-200 text-[13px] leading-relaxed text-slate-700">
+                        <!-- Code injected based on mode -->
+                    </div>
+                </div>
+
+                <!-- Stats Card -->
+                <div class="bg-slate-900 text-white p-7 rounded-[2rem] shadow-xl relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                    <h3 class="text-xs font-black uppercase tracking-widest text-indigo-400 mb-6 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span> Pipeline Performance
+                    </h3>
+                    <div class="mono text-sm space-y-5 relative z-10">
+                        <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                            <span class="text-slate-400 text-xs uppercase font-bold tracking-tight">Elements (N)</span>
+                            <span class="text-lg font-bold">4</span>
+                        </div>
+                        <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                            <span class="text-slate-400 text-xs uppercase font-bold tracking-tight">Instruction Fetches</span>
+                            <span id="inst-fetch-val" class="text-lg font-bold text-emerald-400">0</span>
+                        </div>
+                        <div class="flex justify-between items-center pt-1">
+                            <span class="text-indigo-300 text-xs uppercase font-black tracking-tight">Total Elapsed Cycles</span>
+                            <span id="total-cycles-val" class="text-3xl font-black text-white">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Context Card -->
+                <div class="p-6 bg-white rounded-[2rem] border border-slate-100 shadow-sm">
+                    <h4 id="mode-name" class="text-lg font-black text-slate-900 mb-3">MIPS Pipeline</h4>
+                    <p id="mode-definition" class="text-sm text-slate-500 leading-relaxed italic">
+                        Select a mode to explore architectural differences.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ramData = [0, 1, 2, 3];
+        const scalarStages = ["FETCH", "DECODE", "EXECUTION", "WB"];
+        const vectorStages = ["LOAD", "ADD 1", "MUL 2", "STORE"];
+        
+        // Refined Colors
+        const opColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+        const opNames = ["LOD", "ADD", "MUL", "STR"];
+        
+        let mode = 'mips';
+        let currentStep = 0;
+
+        // Visual constants adjusted for better spacing
+        const startX = 125;
+        const gapX = 150; // Increased gap to prevent box overlap
+        const centerY = 240;
+        const topRamY = 40;
+        const bottomRamY = 400;
+
+        function getStageLabels() {
+            return mode === 'mips' ? scalarStages : vectorStages;
+        }
+
+        function initUI() {
+            const ramTop = document.getElementById('ram-top-group');
+            const ramBottom = document.getElementById('ram-bottom-group');
+            const arch = document.getElementById('arch-group');
+            const codeBox = document.getElementById('program-code');
+            const codeTitle = document.getElementById('code-sidebar-title');
+            const labels = getStageLabels();
+            
+            ramTop.innerHTML = ''; ramBottom.innerHTML = ''; arch.innerHTML = '';
+
+            // Update Sidebar Code
+            if (mode === 'vector' || mode === 'array') {
+                codeTitle.innerText = "SIMD BATCH CODE";
+                codeBox.innerHTML = `
+                    <div class="flex gap-3 mb-2"><span class="font-black text-blue-500 w-8">LD</span> <span class="text-slate-500">VR, A[3:0]</span></div>
+                    <div class="flex gap-3 mb-2"><span class="font-black text-emerald-500 w-8">ADD</span> <span class="text-slate-500">VR, VR, 1</span></div>
+                    <div class="flex gap-3 mb-2"><span class="font-black text-amber-500 w-8">MUL</span> <span class="text-slate-500">VR, VR, 2</span></div>
+                    <div class="flex gap-3"><span class="font-black text-red-500 w-8">ST</span> <span class="text-slate-500">A[3:0], VR</span></div>
+                `;
+            } else {
+                codeTitle.innerText = "SISD SCALAR LOOP";
+                codeBox.innerHTML = `
+                    <div class="flex gap-3 mb-2"><span class="font-black text-blue-500 w-8">LOD</span> <span class="text-slate-500">R1, A[i]</span></div>
+                    <div class="flex gap-3 mb-2"><span class="font-black text-emerald-500 w-8">ADD</span> <span class="text-slate-500">R1, R1, 1</span></div>
+                    <div class="flex gap-3 mb-2"><span class="font-black text-amber-500 w-8">MUL</span> <span class="text-slate-500">R1, R1, 2</span></div>
+                    <div class="flex gap-3"><span class="font-black text-red-500 w-8">STR</span> <span class="text-slate-500">A[i], R1</span></div>
+                `;
+            }
+
+            // Draw RAM
+            ramData.forEach((num, i) => {
+                const x = 240 + (i * 75);
+                const drawSlot = (g, y, idPrefix) => {
+                    g.innerHTML += `
+                        <rect id="${idPrefix}-${i}" x="${x - 28}" y="${y}" width="56" height="34" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2" class="transition-all duration-300" />
+                        <text x="${x}" y="${y+21}" text-anchor="middle" class="text-[14px] font-extrabold fill-slate-400">A${num}</text>
+                    `;
+                };
+                drawSlot(ramTop, topRamY, 't-ram');
+                drawSlot(ramBottom, bottomRamY, 'b-ram');
+            });
+
+            if (mode === 'array') {
+                ramData.forEach((_, i) => {
+                    const x = 240 + (i * 75);
+                    arch.innerHTML += `
+                        <rect x="${x - 32}" y="100" width="64" height="260" rx="12" class="lane-box" />
+                        <text x="${x}" y="${y=385}" text-anchor="middle" class="text-[12px] font-black fill-slate-800 uppercase tracking-[0.2em]">PE${i}</text>
+                    `;
+                    labels.forEach((label, j) => {
+                        const y = 135 + (j * 65);
+                        arch.innerHTML += `
+                            <rect id="stage-${i}-${j}" x="${x - 28}" y="${y - 18}" width="56" height="36" rx="8" fill="white" stroke="#e2e8f0" stroke-width="2" class="transition-all duration-300 stage-rect" />
+                            <text x="${x}" y="${y+5}" text-anchor="middle" class="text-[9px] font-black fill-slate-400 uppercase tracking-tighter">${label}</text>
+                        `;
+                    });
+                });
+            } else {
+                const laneColor = mode === 'vector' ? '#8b5cf6' : '#6366f1';
+                arch.innerHTML += `<rect x="${startX - 85}" y="${centerY - 60}" width="${4 * gapX + 35}" height="120" rx="24" class="lane-box" style="stroke: ${laneColor}; fill: #f8fafc; stroke-opacity: 0.3;" />`;
+                
+                labels.forEach((label, j) => {
+                    const x = startX + (j * gapX);
+                    if (j > 0) {
+                        arch.innerHTML += `<line x1="${x - gapX/2}" y1="${centerY - 45}" x2="${x - gapX/2}" y2="${centerY + 45}" stroke="#e2e8f0" stroke-dasharray="4" />`;
+                    }
+                    // Widened stage boxes for MIPS/Vector (125px wide)
+                    const boxWidth = 125;
+                    arch.innerHTML += `
+                        <rect id="stage-0-${j}" x="${x - boxWidth/2}" y="${centerY - 32}" width="${boxWidth}" height="64" rx="12" fill="white" stroke="#e2e8f0" stroke-width="2" class="transition-all duration-300 stage-rect" />
+                        <text x="${x}" y="${centerY + 6}" text-anchor="middle" class="text-[13px] font-black fill-slate-400 uppercase tracking-[0.1em]">${label}</text>
+                    `;
+                });
+            }
+            updateStepUI();
+        }
+
+        function changeMode(newMode) {
+            mode = newMode;
+            currentStep = 0;
+            document.getElementById('btn-mips').classList.toggle('active-btn', mode === 'mips');
+            document.getElementById('btn-vector').classList.toggle('active-btn', mode === 'vector');
+            document.getElementById('btn-array').classList.toggle('active-btn', mode === 'array');
+            
+            const name = document.getElementById('mode-name');
+            const def = document.getElementById('mode-definition');
+            if (mode === 'mips') {
+                name.innerText = "MIPS Pipeline";
+                def.innerText = "Scalar Pipeline. General architectural stages (Fetch, Decode, Execute, WB) handle a serial stream of instructions for each element.";
+            } else if (mode === 'vector') {
+                name.innerText = "Vector Processor";
+                def.innerText = "SIMD Time Parallelism. Fixed functional stages (LOAD, ADD, MUL, STORE) allow data elements to stream through at peak throughput.";
+            } else {
+                name.innerText = "Array Processor";
+                def.innerText = "SIMD Space Parallelism. Instructions are broadcast to parallel Processing Elements (PEs) to handle the whole batch in parallel.";
+            }
+            initUI();
+        }
+
+        function nextStep() {
+            const max = mode === 'mips' ? 20 : (mode === 'vector' ? 8 : 4);
+            if (currentStep < max) {
+                currentStep++;
+                updateStepUI();
+            }
+        }
+        function prevStep() { if (currentStep > 0) { currentStep--; updateStepUI(); } }
+        function reset() { currentStep = 0; updateStepUI(); }
+
+        function updateStepUI() {
+            const particles = document.getElementById('data-particles-group');
+            const actionText = document.getElementById('current-action');
+            const counter = document.getElementById('step-counter');
+            const cycleVal = document.getElementById('total-cycles-val');
+            const instVal = document.getElementById('inst-fetch-val');
+            
+            particles.innerHTML = '';
+            document.querySelectorAll('rect').forEach(r => r.classList.remove('stage-active', 'ram-active'));
+
+            cycleVal.innerText = currentStep;
+            counter.innerText = `Cycle ${currentStep}`;
+
+            if (currentStep === 0) {
+                actionText.innerText = 'System Idle';
+                instVal.innerText = '0';
+                return;
+            }
+
+            if (mode === 'mips') {
+                const totalInstructions = 16;
+                instVal.innerText = Math.min(currentStep, totalInstructions);
+                actionText.innerText = currentStep <= 16 ? "Scalar Serial Flow" : "Flush Stage";
+
+                for (let i = 0; i < totalInstructions; i++) {
+                    const stageIdx = (currentStep - 1) - i;
+                    if (stageIdx >= 0 && stageIdx < 4) {
+                        const dIdx = Math.floor(i / 4);
+                        const opType = i % 4;
+                        const label = `${opNames[opType]}${dIdx}`;
+                        const color = opColors[opType];
+                        // Position ball outside the stage box to the left
+                        const x = startX + (stageIdx * gapX) - 85;
+                        particles.innerHTML += createParticle(x, centerY, label, color, 28, 11);
+                        document.getElementById(`stage-0-${stageIdx}`).classList.add('stage-active');
+                        if (stageIdx === 0 && opType === 0) document.getElementById(`t-ram-${dIdx}`).classList.add('ram-active');
+                        if (stageIdx === 3 && opType === 3) document.getElementById(`b-ram-${dIdx}`).classList.add('ram-active');
+                    }
+                }
+            } else if (mode === 'vector') {
+                instVal.innerText = Math.min(currentStep, 4);
+                actionText.innerText = "Vector Staggered Flow";
+
+                ramData.forEach((_, i) => {
+                    const stagePos = currentStep - 1 - i;
+                    if (stagePos >= 0 && stagePos < 4) {
+                        const label = `${opNames[stagePos]}${i}`;
+                        const color = opColors[stagePos];
+                        const x = startX + (stagePos * gapX) - 85;
+
+                        particles.innerHTML += createParticle(x, centerY, label, color, 28, 12);
+                        document.getElementById(`stage-0-${stagePos}`).classList.add('stage-active');
+                        if (stagePos === 0) document.getElementById(`t-ram-${i}`).classList.add('ram-active');
+                    } else if (stagePos === 4) {
+                        const xResult = 240 + (i * 75);
+                        particles.innerHTML += createParticle(xResult, bottomRamY + 17, `A${i}`, '#94a3b8', 28, 13);
+                        document.getElementById(`b-ram-${i}`).classList.add('ram-active');
+                    }
+                });
+            } else {
+                // Array Mode
+                instVal.innerText = Math.min(currentStep, 4);
+                const stageIdx = currentStep - 1;
+                actionText.innerText = `Broadcasting Op: ${opNames[stageIdx]}`;
+
+                document.querySelectorAll(`[id^='stage-']`).forEach(s => {
+                    if (s.id.endsWith(`-${stageIdx}`)) s.classList.add('stage-active');
+                });
+
+                ramData.forEach((_, i) => {
+                    const x = 240 + (i * 75);
+                    const y = 135 + (stageIdx * 65);
+                    const label = `${opNames[stageIdx]}${i}`;
+                    particles.innerHTML += createParticle(x, y, label, opColors[stageIdx], 26, 12);
+                    if (stageIdx === 0) document.getElementById(`t-ram-${i}`).classList.add('ram-active');
+                    if (stageIdx === 3) document.getElementById(`b-ram-${i}`).classList.add('ram-active');
+                });
+            }
+        }
+
+        function createParticle(x, y, label, color, radius, fontSize) {
+            return `
+                <g class="data-element" style="transform: translate(${x}px, ${y}px)">
+                    <circle r="${radius}" fill="${color}" stroke="white" stroke-width="3" />
+                    <text dy=".35em" text-anchor="middle" fill="white" style="font-size: ${fontSize}px; font-weight: 800; pointer-events: none;">${label}</text>
+                </g>
+            `;
+        }
+
+        window.onload = initUI;
+    </script>
+</body>
+</html>

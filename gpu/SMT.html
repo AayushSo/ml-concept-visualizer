@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMT (Simultaneous Multithreading) Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .pipeline-stage { transition: all 0.3s ease; }
+        .thread-token { 
+            transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: absolute;
+            z-index: 50;
+        }
+        .stage-box {
+            width: 100%;
+            min-width: 320px;
+            border: 2px solid #e2e8f0;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: white;
+            margin-bottom: 1rem;
+        }
+        .stage-std { height: 75px; }
+        .stage-tall { height: 140px; } /* Increased height for dispatch queueing */
+
+        .stage-label {
+            position: absolute;
+            left: -140px;
+            width: 130px;
+            text-align: right;
+            font-size: 0.65rem;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Execution Units Grid */
+        .exec-grid {
+            display: grid;
+            grid-template-cols: 1fr 1fr;
+            gap: 12px;
+            width: 90%;
+        }
+        .exec-unit {
+            height: 48px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: 700;
+            color: #94a3b8;
+            transition: all 0.3s ease;
+        }
+        .unit-busy { border-style: solid; border-color: #94a3b8; background-color: #f1f5f9; }
+
+        /* Blocked State */
+        .blocked-hazard {
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.9);
+            border: 3px solid #ef4444 !important;
+            z-index: 100;
+        }
+        .hazard-label {
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ef4444;
+            color: white;
+            font-size: 8px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-weight: 900;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            z-index: 110;
+        }
+
+        .utilization-bar { transition: width 0.5s ease; }
+        
+        @keyframes glow-indigo {
+            0%, 100% { box-shadow: 0 0 5px rgba(99, 102, 241, 0.2); }
+            50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.5); }
+        }
+        .active-dispatch { animation: glow-indigo 1.5s infinite; border-color: #6366f1 !important; }
+        
+        .t0-text { color: #4338ca; }
+        .t1-text { color: #0f766e; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen p-4 md:p-8 font-sans">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 border-b border-slate-200 pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight">SMT: Simultaneous Multithreading</h1>
+                <p class="text-slate-500 mt-1 font-medium italic">Strict Slot-Based Alignment: T0 (Left) vs T1 (Right)</p>
+            </div>
+            <div class="flex gap-4">
+                <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 w-48">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[9px] font-black text-slate-400 uppercase">Core Utilization</span>
+                        <span id="util-percent" class="text-xs font-bold text-indigo-600">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div id="util-bar" class="utilization-bar bg-indigo-500 h-full w-0"></div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+            <!-- Left: Thread Contexts -->
+            <div class="lg:col-span-3 space-y-6">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 text-center">Architecture: SMT-2</h2>
+                    
+                    <div class="space-y-4">
+                        <div class="p-3 rounded-xl border-2 border-indigo-100 bg-indigo-50/30">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs font-black t0-text">THREAD 0</span>
+                                <span id="t0-pc" class="font-mono text-[10px] font-bold">PC: 0</span>
+                            </div>
+                            <div class="h-1 w-full bg-indigo-100 rounded-full overflow-hidden">
+                                <div id="t0-progress" class="bg-indigo-500 h-full transition-all" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 rounded-xl border-2 border-teal-100 bg-teal-50/30">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs font-black t1-text">THREAD 1</span>
+                                <span id="t1-pc" class="font-mono text-[10px] font-bold">PC: 0</span>
+                            </div>
+                            <div class="h-1 w-full bg-teal-100 rounded-full overflow-hidden">
+                                <div id="t1-progress" class="bg-teal-500 h-full transition-all" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 p-5 rounded-2xl shadow-xl">
+                    <div class="flex gap-2 mb-4">
+                        <button id="back-btn" class="bg-slate-800 p-3 rounded-xl hover:bg-slate-700 text-slate-300 transition-all active:scale-95 flex-1">
+                            <svg class="w-5 h-5 mx-auto" fill="currentColor" viewBox="0 0 20 20"><path d="M15.5 15.5l-10-5.5 10-5.5v11z"/></svg>
+                        </button>
+                        <button id="next-btn" class="bg-indigo-600 text-white px-8 py-3 rounded-xl hover:bg-indigo-500 transition-all active:scale-95 flex-[2] font-black uppercase text-xs tracking-widest">
+                            Clock Cycle
+                        </button>
+                    </div>
+                    <button id="reset-btn" class="w-full bg-slate-800 p-2 rounded-xl text-slate-500 text-[10px] font-bold uppercase hover:text-white transition-colors">Reset Processor</button>
+                </div>
+            </div>
+
+            <!-- Middle: SMT Pipeline -->
+            <div class="lg:col-span-6">
+                <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 relative">
+                    <h2 class="text-center text-slate-300 font-black text-[10px] uppercase tracking-[0.3em] mb-8">Shared Superscalar Pipeline</h2>
+                    
+                    <div id="pipeline-container" class="relative px-12">
+                        <!-- Vertical alignment helpers -->
+                        <div class="absolute left-[25%] top-0 bottom-0 w-px bg-slate-100 border-dashed border-l pointer-events-none"></div>
+                        <div class="absolute right-[25%] top-0 bottom-0 w-px bg-slate-100 border-dashed border-l pointer-events-none"></div>
+
+                        <div class="stage-box stage-std bg-slate-50" id="box-fetch">
+                            <div class="stage-label">Fetch (Dual)</div>
+                            <div class="flex justify-between w-full px-12 text-[8px] font-bold text-slate-300">
+                                <span>SLOT T0</span>
+                                <span>SLOT T1</span>
+                            </div>
+                        </div>
+
+                        <div class="stage-box stage-std bg-slate-50" id="box-decode">
+                            <div class="stage-label">Decode / Rename</div>
+                        </div>
+
+                        <div class="stage-box stage-tall active-dispatch" id="box-dispatch">
+                            <div class="stage-label font-black text-indigo-600">Dynamic Dispatch</div>
+                            <div class="absolute bottom-1 w-full text-center text-[7px] font-bold text-slate-400 uppercase tracking-widest">Unified Issue Queue</div>
+                        </div>
+
+                        <div class="stage-box h-[120px]" id="box-execute">
+                            <div class="stage-label">Execution Units</div>
+                            <div class="exec-grid">
+                                <div class="exec-unit border-indigo-200" id="unit-alu0">ALU 0</div>
+                                <div class="exec-unit border-teal-200" id="unit-alu1">ALU 1</div>
+                                <div class="exec-unit border-slate-200" id="unit-fpu">FPU</div>
+                                <div class="exec-unit border-slate-200" id="unit-mem">Load/Store</div>
+                            </div>
+                        </div>
+
+                        <div class="stage-box stage-std bg-slate-50" id="box-commit">
+                            <div class="stage-label">Commit / Retire</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Feedback & Insights -->
+            <div class="lg:col-span-3 space-y-4">
+                <div class="bg-amber-900 text-white p-6 rounded-2xl shadow-lg border-b-4 border-amber-700">
+                    <h4 class="text-[10px] font-black uppercase text-amber-300 mb-2 tracking-widest">Resource Conflict</h4>
+                    <p id="hazard-info" class="text-xs leading-relaxed opacity-90 italic">
+                        No structural hazards currently detected.
+                    </p>
+                </div>
+
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">Real-Time Metrics</h4>
+                    <div class="space-y-3">
+                        <div class="flex justify-between text-[10px] font-bold">
+                            <span class="text-slate-500 uppercase">Cycle Count</span>
+                            <span id="cycle-count" class="font-mono">0</span>
+                        </div>
+                        <div class="flex justify-between text-[10px] font-bold">
+                            <span class="text-slate-500 uppercase">Avg IPC</span>
+                            <span id="ipc-val" class="text-emerald-600 font-mono">0.00</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-indigo-50 p-5 rounded-2xl border border-indigo-100">
+                    <h4 class="text-[10px] font-black uppercase text-indigo-400 mb-2">Tracking Shading</h4>
+                    <p class="text-[10px] text-indigo-900 leading-tight">Instructions are shaded from <strong>Dark to Light</strong>. The darkest instruction is the oldest in that thread's stream.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Token Template -->
+    <template id="token-template">
+        <div class="thread-token w-14 h-16 rounded-xl shadow-lg flex flex-col items-center justify-center border-2 border-black/10">
+            <div class="hazard-indicator"></div>
+            <div class="token-id font-black text-[10px] text-white">T0</div>
+            <div class="token-ins text-[8px] font-bold uppercase mt-1 text-white/90">ADD</div>
+        </div>
+    </template>
+
+    <script>
+        const nextBtn = document.getElementById('next-btn');
+        const backBtn = document.getElementById('back-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const hazardInfo = document.getElementById('hazard-info');
+
+        const boxFetch = document.getElementById('box-fetch');
+        const boxDecode = document.getElementById('box-decode');
+        const boxDispatch = document.getElementById('box-dispatch');
+        const boxCommit = document.getElementById('box-commit');
+
+        const units = {
+            alu0: document.getElementById('unit-alu0'),
+            alu1: document.getElementById('unit-alu1'),
+            fpu: document.getElementById('unit-fpu'),
+            mem: document.getElementById('unit-mem')
+        };
+
+        let cycle = 0;
+        let totalCommitted = 0;
+        let history = [];
+
+        const threadPrograms = [
+            ["LOAD", "ADD", "ADD", "MUL", "STORE", "ADD"],
+            ["LOAD", "MUL", "ADD", "ADD", "ADD", "STORE"]
+        ];
+
+        let threads = [
+            { id: 0, pc: 0, hue: 235, insCount: 0 },
+            { id: 1, pc: 0, hue: 175, insCount: 0 }
+        ];
+
+        let pipeline = {
+            fetch: [],
+            decode: [],
+            dispatch: [],
+            execute: { alu0: null, alu1: null, fpu: null, mem: null },
+            commit: []
+        };
+
+        function init() {
+            cycle = 0; totalCommitted = 0; history = [];
+            threads.forEach(t => { t.pc = 0; t.insCount = 0; });
+            pipeline = { fetch: [], decode: [], dispatch: [], execute: { alu0: null, alu1: null, fpu: null, mem: null }, commit: [] };
+            hazardInfo.innerText = "No structural hazards currently detected.";
+            document.querySelectorAll('.thread-token').forEach(el => el.remove());
+            updateUI();
+        }
+
+        function createToken(thread, insLabel, seqNum, existingId = null) {
+            const temp = document.getElementById('token-template').content.cloneNode(true);
+            const el = temp.querySelector('.thread-token');
+            if (!el) return null;
+            el.id = existingId || `token-${thread.id}-${Date.now()}-${Math.random()}`;
+            
+            const lightness = 35 + ((seqNum % 4) * 8);
+            el.style.backgroundColor = `hsl(${thread.hue}, 70%, ${lightness}%)`;
+            el.style.borderColor = `hsl(${thread.hue}, 80%, ${lightness - 15}%)`;
+            
+            el.querySelector('.token-id').innerText = `T${thread.id}`;
+            el.querySelector('.token-ins').innerText = insLabel;
+            document.body.appendChild(el);
+            return { thread, ins: insLabel, seqNum, el, blocked: false };
+        }
+
+        function getBoxCoords(box) {
+            if (!box) return { x: 0, y: 0 };
+            const rect = box.getBoundingClientRect();
+            // Width adjustment: Tokens are 56px wide (w-14)
+            return { x: rect.left + window.scrollX + (rect.width / 2) - 28, y: rect.top + window.scrollY + (rect.height / 2) - 32 };
+        }
+
+        function updateUI() {
+            document.getElementById('cycle-count').innerText = cycle;
+            const util = cycle > 0 ? Math.min(100, Math.round((totalCommitted / (cycle * 2)) * 100)) : 0;
+            document.getElementById('util-bar').style.width = `${util}%`;
+            document.getElementById('util-percent').innerText = `${util}%`;
+            document.getElementById('ipc-val').innerText = cycle > 0 ? (totalCommitted / cycle).toFixed(2) : "0.00";
+
+            threads.forEach(t => {
+                const pcEl = document.getElementById(`t${t.id}-pc`);
+                const progEl = document.getElementById(`t${t.id}-progress`);
+                if (pcEl) pcEl.innerText = `PC: ${t.pc % threadPrograms[t.id].length}`;
+                if (progEl) progEl.style.width = `${(t.pc % 10) * 10}%`;
+            });
+
+            // STRICT PLACEMENT LOGIC
+            const stages = [
+                { arr: pipeline.fetch, box: boxFetch, isTall: false },
+                { arr: pipeline.decode, box: boxDecode, isTall: false },
+                { arr: pipeline.dispatch, box: boxDispatch, isTall: true }
+            ];
+
+            stages.forEach(s => {
+                const threadCounts = [0, 0];
+                s.arr.forEach((tkn) => {
+                    const base = getBoxCoords(s.box);
+                    const tid = tkn.thread.id;
+                    
+                    // X-SLOTS: T0 at -70px, T1 at +70px relative to center
+                    const xOffset = tid === 0 ? -70 : 70;
+                    
+                    // Y-SLOTS:
+                    // If dispatch queue (tall stage), stack instructions vertically
+                    // Otherwise, just keep them at base
+                    let yOffset = 0;
+                    if (s.isTall) {
+                        yOffset = (threadCounts[tid] * 24) - 20; // 24px vertical separation
+                    }
+
+                    tkn.el.style.left = `${base.x + xOffset}px`;
+                    tkn.el.style.top = `${base.y + yOffset}px`;
+                    
+                    const hzLabel = tkn.el.querySelector('.hazard-indicator');
+                    if (tkn.blocked) {
+                        tkn.el.classList.add('blocked-hazard');
+                        hzLabel.innerHTML = `<div class="hazard-label">BLOCKED</div>`;
+                    } else {
+                        tkn.el.classList.remove('blocked-hazard');
+                        hzLabel.innerHTML = '';
+                    }
+                    threadCounts[tid]++;
+                });
+            });
+
+            // Execution Units placement
+            Object.keys(pipeline.execute).forEach(key => {
+                const tkn = pipeline.execute[key];
+                const unitEl = units[key];
+                if (tkn) {
+                    const base = getBoxCoords(unitEl);
+                    tkn.el.style.left = `${base.x}px`;
+                    tkn.el.style.top = `${base.y}px`;
+                    unitEl.classList.add('unit-busy');
+                } else {
+                    unitEl.classList.remove('unit-busy');
+                }
+            });
+
+            // Commit stage placement
+            pipeline.commit.forEach((tkn, i) => {
+                const base = getBoxCoords(boxCommit);
+                const xOffset = tkn.thread.id === 0 ? -20 : 20;
+                tkn.el.style.left = `${base.x + xOffset}px`;
+                tkn.el.style.top = `${base.y}px`;
+                tkn.el.style.opacity = "0"; 
+            });
+        }
+
+        function captureState() {
+            return JSON.parse(JSON.stringify({
+                cycle, totalCommitted, 
+                threads: threads.map(t => ({ id: t.id, pc: t.pc, hue: t.hue, insCount: t.insCount })),
+                pipeline: {
+                    fetch: pipeline.fetch.map(t => ({ id: t.thread.id, ins: t.ins, seq: t.seqNum, elId: t.el.id, blocked: t.blocked })),
+                    decode: pipeline.decode.map(t => ({ id: t.thread.id, ins: t.ins, seq: t.seqNum, elId: t.el.id, blocked: t.blocked })),
+                    dispatch: pipeline.dispatch.map(t => ({ id: t.thread.id, ins: t.ins, seq: t.seqNum, elId: t.el.id, blocked: t.blocked })),
+                    execute: {
+                        alu0: pipeline.execute.alu0 ? { id: pipeline.execute.alu0.thread.id, ins: pipeline.execute.alu0.ins, seq: pipeline.execute.alu0.seqNum, elId: pipeline.execute.alu0.el.id } : null,
+                        alu1: pipeline.execute.alu1 ? { id: pipeline.execute.alu1.thread.id, ins: pipeline.execute.alu1.ins, seq: pipeline.execute.alu1.seqNum, elId: pipeline.execute.alu1.el.id } : null,
+                        fpu: pipeline.execute.fpu ? { id: pipeline.execute.fpu.thread.id, ins: pipeline.execute.fpu.ins, seq: pipeline.execute.fpu.seqNum, elId: pipeline.execute.fpu.el.id } : null,
+                        mem: pipeline.execute.mem ? { id: pipeline.execute.mem.thread.id, ins: pipeline.execute.mem.ins, seq: pipeline.execute.mem.seqNum, elId: pipeline.execute.mem.el.id } : null
+                    },
+                    commit: pipeline.commit.map(t => ({ id: t.thread.id, ins: t.ins, seq: t.seqNum, elId: t.el.id }))
+                }
+            }));
+        }
+
+        function step() {
+            history.push(captureState());
+            cycle++;
+            let hazardDetected = false;
+            let hazardType = "";
+
+            totalCommitted += pipeline.commit.length;
+            pipeline.commit.forEach(tkn => tkn.el.remove());
+            pipeline.commit = [];
+
+            Object.keys(pipeline.execute).forEach(key => {
+                if (pipeline.execute[key]) {
+                    pipeline.commit.push(pipeline.execute[key]);
+                    pipeline.execute[key] = null;
+                }
+            });
+
+            const remainingDispatch = [];
+            pipeline.dispatch.forEach(tkn => {
+                let issued = false;
+                const baseIns = tkn.ins.split(" ")[0];
+                tkn.blocked = false;
+
+                if (baseIns === "ADD") {
+                    if (!pipeline.execute.alu0) { pipeline.execute.alu0 = tkn; issued = true; }
+                    else if (!pipeline.execute.alu1) { pipeline.execute.alu1 = tkn; issued = true; }
+                    else { tkn.blocked = true; hazardDetected = true; hazardType = "ALU Overload: Both ALUs busy."; }
+                } else if (baseIns === "MUL") {
+                    if (!pipeline.execute.fpu) { pipeline.execute.fpu = tkn; issued = true; }
+                    else { tkn.blocked = true; hazardDetected = true; hazardType = "FPU busy with Thread " + (1 - tkn.thread.id); }
+                } else if (baseIns === "LOAD" || baseIns === "STORE") {
+                    if (!pipeline.execute.mem) { pipeline.execute.mem = tkn; issued = true; }
+                    else { tkn.blocked = true; hazardDetected = true; hazardType = "Shared memory port busy."; }
+                }
+
+                if (!issued) remainingDispatch.push(tkn);
+            });
+            pipeline.dispatch = remainingDispatch;
+            hazardInfo.innerText = hazardDetected ? hazardType : "No structural hazards currently detected.";
+
+            pipeline.dispatch.push(...pipeline.decode);
+            pipeline.decode = [];
+
+            pipeline.decode.push(...pipeline.fetch);
+            pipeline.fetch = [];
+
+            threads.forEach(t => {
+                const program = threadPrograms[t.id];
+                const insLabel = program[t.pc % program.length];
+                const displayIns = `${insLabel} #${t.insCount}`; 
+                const tkn = createToken(t, displayIns, t.insCount);
+                if (tkn) {
+                    pipeline.fetch.push(tkn);
+                    t.pc++; t.insCount++;
+                }
+            });
+
+            updateUI();
+        }
+
+        function goBack() {
+            if (history.length === 0) return;
+            const prev = history.pop();
+            document.querySelectorAll('.thread-token').forEach(el => el.remove());
+            cycle = prev.cycle; totalCommitted = prev.totalCommitted;
+            threads.forEach((t, i) => { t.pc = prev.threads[i].pc; t.insCount = prev.threads[i].insCount; });
+
+            const mapToken = (data) => {
+                const thread = threads.find(t => t.id === data.id);
+                const tkn = thread ? createToken(thread, data.ins, data.seq, data.elId) : null;
+                if (tkn) tkn.blocked = data.blocked;
+                return tkn;
+            };
+
+            pipeline.fetch = prev.pipeline.fetch.map(mapToken).filter(x => x);
+            pipeline.decode = prev.pipeline.decode.map(mapToken).filter(x => x);
+            pipeline.dispatch = prev.pipeline.dispatch.map(mapToken).filter(x => x);
+            pipeline.execute = {
+                alu0: prev.pipeline.execute.alu0 ? mapToken(prev.pipeline.execute.alu0) : null,
+                alu1: prev.pipeline.execute.alu1 ? mapToken(prev.pipeline.execute.alu1) : null,
+                fpu: prev.pipeline.execute.fpu ? mapToken(prev.pipeline.execute.fpu) : null,
+                mem: prev.pipeline.execute.mem ? mapToken(prev.pipeline.execute.mem) : null
+            };
+            pipeline.commit = prev.pipeline.commit.map(mapToken).filter(x => x);
+            updateUI();
+        }
+
+        nextBtn.addEventListener('click', step);
+        backBtn.addEventListener('click', goBack);
+        resetBtn.addEventListener('click', init);
+        window.onload = () => { init(); window.addEventListener('resize', updateUI); };
+    </script>
+</body>
+</html>

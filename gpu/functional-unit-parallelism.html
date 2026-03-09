@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Functional Unit Parallelism: Scalar vs. Vector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .active-btn {
+            background-color: #6366f1 !important;
+            color: white !important;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+        
+        .data-label {
+            transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .pipeline-unit {
+            fill: #ffffff;
+            stroke: #1e293b;
+            stroke-width: 2.5;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05));
+        }
+
+        .stage-line {
+            stroke: #f1f5f9;
+            stroke-width: 2;
+        }
+
+        .input-text {
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+        }
+    </style>
+</head>
+<body class="bg-[#f8fafc] min-h-screen p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-end gap-4">
+            <div>
+                <h1 class="text-4xl font-black text-slate-900 tracking-tight">Vector Instruction Execution</h1>
+                <p class="text-slate-500 font-medium italic">Executing <code class="bg-indigo-50 px-2 py-0.5 rounded font-bold text-indigo-600 border border-indigo-100">vadd vc, va, vb</code></p>
+            </div>
+            
+            <div class="flex flex-col items-end gap-3">
+                <div class="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200 flex gap-1">
+                    <button id="btn-scalar" onclick="changeMode('scalar')" class="px-5 py-2 rounded-xl font-bold text-xs transition-all active-btn">ONE PIPELINED UNIT</button>
+                    <button id="btn-vector" onclick="changeMode('vector')" class="px-5 py-2 rounded-xl font-bold text-xs transition-all text-slate-500 hover:bg-slate-50">FOUR PIPELINED UNITS</button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="prevStep()" class="px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-sm hover:bg-slate-50 shadow-sm transition-all disabled:opacity-30" id="prev-btn">Back</button>
+                    <button onclick="nextStep()" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-30" id="next-btn">Next Cycle</button>
+                    <button onclick="reset()" class="px-4 py-2 bg-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-300">Reset</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Animation Stage -->
+            <div class="lg:col-span-8 bg-white rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 p-10 flex flex-col items-center min-h-[640px]">
+                <div class="mb-10 text-center">
+                    <span id="step-counter" class="inline-block px-4 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[13px] font-black uppercase tracking-widest border border-indigo-100 mb-3">Cycle 0</span>
+                    <h2 id="mode-title-display" class="text-2xl font-black text-slate-900 uppercase tracking-tight">Sequential Pipelining</h2>
+                </div>
+
+                <svg id="viz-svg" width="600" height="480" viewBox="0 0 600 480" class="w-full h-auto overflow-visible">
+                    <g id="architecture-layer"></g>
+                    <g id="data-layer"></g>
+                    
+                    <!-- Global Labels -->
+                    <text x="40" y="240" text-anchor="middle" class="text-[11px] font-black fill-slate-300 uppercase tracking-[0.2em] rotate-[-90]">Time Flow $\downarrow$</text>
+                    <g id="space-arrow" class="opacity-0 transition-opacity">
+                        <line x1="150" y1="450" x2="450" y2="450" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arrow-head)" marker-start="url(#arrow-head)" />
+                        <text x="300" y="472" text-anchor="middle" class="text-[11px] font-black fill-slate-300 uppercase tracking-[0.3em]">Space (Parallel Lanes)</text>
+                    </g>
+
+                    <defs>
+                        <marker id="arrow-head" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                          <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Status Card -->
+                <div class="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-xl relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                    <h3 class="text-xs font-black uppercase tracking-widest text-indigo-400 mb-8 flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></span> Pipeline Status
+                    </h3>
+                    <div class="mono text-sm space-y-6 relative z-10">
+                        <div class="flex justify-between items-center border-b border-white/10 pb-4">
+                            <span class="text-slate-400 text-xs uppercase font-bold tracking-tight">Throughput</span>
+                            <span id="stat-throughput" class="text-lg font-bold text-emerald-400">1 result / cyc</span>
+                        </div>
+                        <div class="flex justify-between items-center pt-2">
+                            <span class="text-indigo-300 text-xs font-black uppercase tracking-tight">Current Cycle</span>
+                            <span id="total-cycles-val" class="text-4xl font-black text-white">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Legend Card -->
+                <div class="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                    <h4 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Operand Streams</h4>
+                    <div class="flex flex-col gap-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-4 h-4 rounded bg-[#6366f1]"></div>
+                            <span class="text-sm font-bold text-slate-600">Vector A ($va$)</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-4 h-4 rounded bg-[#f43f5e]"></div>
+                            <span class="text-sm font-bold text-slate-600">Vector B ($vb$)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Explanation -->
+                <div class="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                    <h4 class="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Pipelined Execution</h4>
+                    <p id="concept-desc" class="text-sm text-slate-500 leading-relaxed font-medium">
+                        Input pairs $(A, B)$ enter from the top. The functional unit is pipelined into stages, allowing new data to enter every cycle.
+                    </p>
+                </div>
+                
+                <div class="p-7 bg-indigo-50/50 rounded-[2.5rem] border border-indigo-100">
+                    <h4 class="text-xs font-black text-indigo-900 uppercase tracking-widest mb-3">Throughput Math</h4>
+                    <div id="math-formula" class="text-base text-indigo-800 font-bold">
+                        $$T = 1 \text{ Result/Cycle}$$
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let mode = 'scalar';
+        let cycle = 0;
+        const maxCycleCount = 15;
+        const totalItems = 32;
+        const pipelineDepth = 3;
+
+        // Visual Layout Constants
+        const unitTopY = 200; 
+
+        function initUI() {
+            const arch = document.getElementById('architecture-layer');
+            const spaceLabel = document.getElementById('space-arrow');
+            arch.innerHTML = '';
+            
+            if (mode === 'scalar') {
+                spaceLabel.style.opacity = 0;
+                drawPipelinedUnit(arch, 300, 260, "ALU");
+            } else {
+                spaceLabel.style.opacity = 1;
+                for (let i = 0; i < 4; i++) {
+                    drawPipelinedUnit(arch, 150 + (i * 100), 260, `LANE ${i}`);
+                }
+            }
+            updateUI();
+        }
+
+        function drawPipelinedUnit(g, x, y, label) {
+            g.innerHTML += `
+                <path d="M ${x-50} ${y-60} L ${x+50} ${y-60} L ${x+35} ${y+45} L ${x-35} ${y+45} Z" class="pipeline-unit" />
+                <line x1="${x-44}" y1="${y-25}" x2="${x+44}" y2="${y-25}" class="stage-line" />
+                <line x1="${x-39}" y1="${y+10}" x2="${x+39}" y2="${y+10}" class="stage-line" />
+                <text x="${x}" y="${y+75}" text-anchor="middle" class="text-[10px] font-black fill-slate-400 uppercase tracking-[0.2em]">${label}</text>
+            `;
+        }
+
+        function changeMode(newMode) {
+            mode = newMode;
+            cycle = 0;
+            document.getElementById('btn-scalar').classList.toggle('active-btn', mode === 'scalar');
+            document.getElementById('btn-vector').classList.toggle('active-btn', mode === 'vector');
+            
+            const title = document.getElementById('mode-title-display');
+            const desc = document.getElementById('concept-desc');
+            const throughput = document.getElementById('stat-throughput');
+            const math = document.getElementById('math-formula');
+
+            if (mode === 'scalar') {
+                title.innerText = "One Pipelined Unit";
+                desc.innerText = "Standard serial pipelining. It produces one result per cycle after initial latency. Total throughput is limited by a single hardware lane.";
+                throughput.innerText = "1 result / cycle";
+                math.innerHTML = "$$T = 1 \\text{ Result/Cycle}$$";
+            } else {
+                title.innerText = "Four Pipelined Units";
+                desc.innerText = "SIMD 'Space' Parallelism. Four lanes work in parallel, processing four pairs of elements simultaneously every clock cycle.";
+                throughput.innerText = "4 results / cycle";
+                math.innerHTML = "$$T = 4 \\text{ Results/Cycle}$$";
+            }
+            initUI();
+            if (window.MathJax) MathJax.typeset();
+        }
+
+        function nextStep() {
+            if (cycle < maxCycleCount) {
+                cycle++;
+                updateUI();
+            }
+        }
+
+        function prevStep() {
+            if (cycle > 0) {
+                cycle--;
+                updateUI();
+            }
+        }
+
+        function reset() {
+            cycle = 0;
+            updateUI();
+        }
+
+        function updateUI() {
+            const dataLayer = document.getElementById('data-layer');
+            document.getElementById('step-counter').innerText = `Cycle ${cycle}`;
+            document.getElementById('total-cycles-val').innerText = cycle;
+            dataLayer.innerHTML = '';
+
+            const lanes = mode === 'scalar' ? 1 : 4;
+            const startX = mode === 'scalar' ? 300 : 150;
+            const stepX = 100;
+
+            for (let i = 0; i < totalItems; i++) {
+                const laneIdx = i % lanes;
+                const batchIdx = Math.floor(i / lanes);
+                const x = startX + (laneIdx * stepX);
+                
+                const entryCycle = batchIdx + 1;
+                const stage = cycle - entryCycle;
+
+                let y, opacity = 1, text = "";
+
+                if (stage < 0) {
+                    const waitLevel = -stage;
+                    if (waitLevel > 4) continue;
+                    
+                    y = (unitTopY - 18) - (waitLevel - 1) * 32; 
+                    opacity = 1 - (waitLevel * 0.15);
+                    
+                    text = `<text x="${x-18}" y="${y}" style="fill: #6366f1;" class="input-text">A[${i}]</text>
+                            <text x="${x+18}" y="${y}" style="fill: #f43f5e;" class="input-text">B[${i}]</text>`;
+                } else if (stage < pipelineDepth) {
+                    y = 215 + (stage * 35);
+                    text = `<text x="${x}" y="${y}" class="fill-indigo-600 font-extrabold">C[${i}]</text>`;
+                } else if (stage === pipelineDepth) {
+                    y = 360;
+                    text = `<text x="${x}" y="${y}" class="fill-emerald-500 font-black">C[${i}]</text>`;
+                } else {
+                    const retiredDist = stage - pipelineDepth;
+                    if (retiredDist > 3) continue;
+                    y = 360 + (retiredDist * 30);
+                    opacity = 1 - (retiredDist * 0.3);
+                    text = `<text x="${x}" y="${y}" class="fill-slate-300 font-bold">C[${i}]</text>`;
+                }
+
+                dataLayer.innerHTML += `
+                    <g class="data-label" style="opacity: ${opacity}; text-anchor: middle;">
+                        ${text}
+                    </g>
+                `;
+            }
+        }
+
+        window.onload = initUI;
+    </script>
+</body>
+</html>

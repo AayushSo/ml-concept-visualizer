@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Architecture Lab: Multi-Bank vs. Single-Bank</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .bank {
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 0;
+            position: relative;
+            z-index: 10;
+        }
+        .bank.busy { border-color: #fbbf24; background-color: #fffbeb; }
+        .bank.active {
+            background-color: #3b82f6;
+            color: white;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.5);
+        }
+        .bank.conflict {
+            background-color: #ef4444;
+            color: white;
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        .mar-display {
+            width: 100%;
+            border-top: 1px solid #f1f5f9;
+            margin-top: 4px;
+            padding-top: 2px;
+            font-family: monospace;
+            font-size: 10px;
+            color: #3b82f6;
+            font-weight: bold;
+            text-align: center;
+        }
+        .bank.active .mar-display { color: white; border-top-color: rgba(255,255,255,0.3); }
+        
+        .latency-bar { display: flex; gap: 1px; margin-top: 2px; }
+        .latency-dot { width: 4px; height: 4px; border-radius: 50%; background: #e2e8f0; }
+        .latency-dot.active { background: #f59e0b; }
+
+        .bus-line { height: 8px; background: #1e293b; position: relative; transition: all 0.3s; }
+        .bus-active-addr { background: #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.8); }
+        .bus-active-data { background: #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, 0.8); }
+
+        .bus-tap { position: absolute; width: 2px; background: #cbd5e1; transition: all 0.3s; pointer-events: none; }
+        .bus-tap.addr-active { background: #3b82f6; width: 3px; box-shadow: 0 0 8px rgba(59, 130, 246, 0.5); }
+        .bus-tap.data-active { background: #10b981; width: 3px; box-shadow: 0 0 8px rgba(16, 185, 129, 0.5); }
+
+        .cpu-box {
+            background: #1e293b;
+            color: white;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
+            position: relative;
+            z-index: 20;
+        }
+        .register {
+            background: #334155;
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-align: center;
+            min-width: 80px;
+            border: 1px solid #475569;
+        }
+        .tab-btn.active { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: bold; }
+        #busLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen font-sans text-slate-900">
+
+    <div class="max-w-[1600px] mx-auto p-4">
+        <!-- Dashboard Header -->
+        <header class="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 p-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800">Memory Architecture Lab</h1>
+                    <p class="text-slate-500 text-sm">Compare banked vs. non-banked systems and observe structural hazards.</p>
+                </div>
+                
+                <div class="flex bg-slate-100 p-1 rounded-lg">
+                    <button onclick="switchTab('multi')" id="tabMulti" class="tab-btn active px-6 py-2 rounded-md transition-all text-sm">Multi-Bank (16)</button>
+                    <button onclick="switchTab('single')" id="tabSingle" class="tab-btn px-6 py-2 rounded-md transition-all text-sm">Single-Bank (1)</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <!-- Global Controls -->
+            <div class="lg:col-span-1 space-y-4">
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Simulation Controls</h3>
+                    
+                    <div id="strideControl">
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Vector Stride</label>
+                        <input type="range" id="strideRange" min="1" max="16" value="1" class="w-full mb-1">
+                        <div class="text-[10px] text-blue-600 font-bold mb-4" id="strideVal">Stride: 1</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Memory Latency</label>
+                        <select id="latencySelect" class="w-full p-2 border rounded bg-slate-50 text-xs">
+                            <option value="1">1 Cycle (Instant)</option>
+                            <option value="4" selected>4 Cycles (Normal)</option>
+                            <option value="8">8 Cycles (Slow)</option>
+                        </select>
+                    </div>
+
+                    <div class="pt-4 border-t space-y-2">
+                        <button id="startSim" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition text-sm disabled:opacity-50">Run Simulation</button>
+                        <button id="nextStep" class="w-full bg-slate-100 hover:bg-slate-200 py-2 rounded-lg text-sm transition disabled:opacity-50">Single Step →</button>
+                        <button id="resetSim" class="w-full border py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-50">Reset All</button>
+                    </div>
+                </div>
+
+                <!-- NEW Legend Section -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Legend</h3>
+                    <div class="space-y-3">
+                        <div class="flex items-start gap-2">
+                            <div class="latency-bar mt-1">
+                                <div class="latency-dot active"></div>
+                                <div class="latency-dot active"></div>
+                                <div class="latency-dot"></div>
+                            </div>
+                            <div class="text-[11px] leading-tight">
+                                <span class="font-bold block">Latency Dots</span>
+                                Internal cycles remaining for memory retrieval. Orange dots = Busy cycles.
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <div class="w-3 h-3 rounded-full bg-blue-500 mt-0.5"></div>
+                            <div class="text-[11px] leading-tight text-slate-600">
+                                <span class="font-bold block text-blue-600">Address Bus</span>
+                                Blue pulse signals a broadcast of the current address to all banks.
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <div class="w-3 h-3 rounded-full bg-green-500 mt-0.5"></div>
+                            <div class="text-[11px] leading-tight text-slate-600">
+                                <span class="font-bold block text-green-600">Data Bus</span>
+                                Green pulse signals successful data return from a bank to the CPU.
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <div class="w-3 h-3 rounded bg-red-500 mt-0.5"></div>
+                            <div class="text-[11px] leading-tight text-slate-600">
+                                <span class="font-bold block text-red-600">Conflict</span>
+                                Red flash means the bank is busy and rejected the new request.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 rounded-xl p-5 text-white shadow-lg">
+                    <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Live Performance</h3>
+                    <div class="space-y-3 text-xs">
+                        <div class="flex justify-between">Cycle: <span id="cycleCount" class="font-mono text-blue-400">0</span></div>
+                        <div class="flex justify-between">Elements: <span id="elCount" class="font-mono text-green-400">0/16</span></div>
+                        <div class="flex justify-between border-t border-slate-800 pt-2">Throughput: <span id="throughput" class="font-mono text-amber-400 font-bold">0.00</span></div>
+                        <p class="text-[10px] text-slate-500 mt-2" id="throughputNote">Ideal: 1.00 elements/cycle</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visualization Canvas -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Banks View -->
+                <div class="bg-white p-8 rounded-xl shadow-md border border-slate-200 relative overflow-hidden">
+                    <div id="banksWrapper" class="relative">
+                        <!-- Connector Taps Overlay -->
+                        <div id="busLayer"></div>
+
+                        <div id="banksContainer" class="flex flex-nowrap gap-1 justify-center min-h-[130px] px-2 mb-16 relative z-10">
+                            <!-- Injected by JS -->
+                        </div>
+                        
+                        <!-- Shared Buses -->
+                        <div class="relative h-24 min-w-[300px] px-4 z-10">
+                            <div id="dataBus" class="bus-line w-full rounded-full">
+                                <span class="absolute -top-6 left-0 text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-white px-1">Shared Data Bus</span>
+                            </div>
+                            <div id="addressBus" class="bus-line w-full rounded-full mt-10">
+                                <span class="absolute -top-6 left-0 text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-white px-1">Shared Address Bus</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CPU / Engine View -->
+                <div class="flex justify-center bg-white border border-slate-200 rounded-xl p-8 relative">
+                    <!-- Central Vertical Trace -->
+                    <div class="absolute h-1/2 w-2 bg-slate-100 left-1/2 -translate-x-1/2 top-0"></div>
+                    
+                    <div class="cpu-box">
+                        <div class="text-center mr-4">
+                            <div class="text-[10px] font-bold text-slate-400 uppercase mb-1">Vector Engine</div>
+                            <div class="text-xs text-blue-400 font-mono" id="cpuIdx">Idx: 0</div>
+                        </div>
+                        <div class="register">
+                            <div class="text-[9px] text-slate-400 uppercase mb-1">MAR (Addr)</div>
+                            <div class="font-mono text-blue-400 font-bold" id="cpu-mar">--</div>
+                        </div>
+                        <div class="register">
+                            <div class="text-[9px] text-slate-400 uppercase mb-1">MDR (Data)</div>
+                            <div class="font-mono text-green-400 font-bold" id="cpu-mdr">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="explanationText" class="bg-white p-6 rounded-xl border border-slate-200 text-sm text-slate-600 leading-relaxed shadow-sm">
+                    Ready to compare architectures. Note the <strong>Latency Dots</strong>: as a bank processes a request, it remains busy for $N$ cycles (shown as orange dots). Once all dots are cleared, the data is returned via the Data Bus.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const banksContainer = document.getElementById('banksContainer');
+        const strideRange = document.getElementById('strideRange');
+        const strideVal = document.getElementById('strideVal');
+        const strideControl = document.getElementById('strideControl');
+        const latencySelect = document.getElementById('latencySelect');
+        const startBtn = document.getElementById('startSim');
+        const nextBtn = document.getElementById('nextStep');
+        const resetBtn = document.getElementById('resetSim');
+        const cycleCounter = document.getElementById('cycleCount');
+        const elCountDisplay = document.getElementById('elCount');
+        const throughputCounter = document.getElementById('throughput');
+        const explanationText = document.getElementById('explanationText');
+        const addressBus = document.getElementById('addressBus');
+        const dataBus = document.getElementById('dataBus');
+        const busLayer = document.getElementById('busLayer');
+
+        let currentTab = 'multi'; // 'multi' or 'single'
+        let autoInterval = null;
+        let isProcessingStep = false; // Guard to prevent rapid clicks
+
+        let currentState = {
+            cycles: 0, elementsLoaded: 0, elementsFinished: 0,
+            pendingElements: [], bankLocks: [], bankAddresses: [],
+            lastAction: 'Ready', currentMDR: '--', currentMAR: '--',
+            dataToReturn: []
+        };
+
+        const VECTOR_LENGTH = 16;
+
+        function switchTab(type) {
+            currentTab = type;
+            document.getElementById('tabMulti').classList.toggle('active', type === 'multi');
+            document.getElementById('tabSingle').classList.toggle('active', type === 'single');
+            
+            // Single bank doesn't use stride concept (it only has one bank to hit)
+            strideControl.style.opacity = type === 'multi' ? '1' : '0.3';
+            strideControl.style.pointerEvents = type === 'multi' ? 'auto' : 'none';
+            
+            reset();
+            initBanks();
+        }
+
+        function initBanks() {
+            const numBanks = currentTab === 'multi' ? 16 : 1;
+            banksContainer.innerHTML = '';
+            busLayer.innerHTML = '';
+            
+            for (let i = 0; i < numBanks; i++) {
+                const bank = document.createElement('div');
+                bank.className = `bank ${currentTab === 'multi' ? 'w-12 h-24' : 'w-24 h-32'} border-2 border-slate-200 rounded bg-white shadow-sm`;
+                bank.innerHTML = `
+                    <div class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">${currentTab === 'multi' ? 'ID:'+i.toString(16).toUpperCase() : 'MAIN BANK'}</div>
+                    <span class="${currentTab === 'multi' ? 'text-lg' : 'text-3xl'} font-black">${currentTab === 'multi' ? i.toString(16).toUpperCase() : 'MEM'}</span>
+                    <div class="latency-bar" id="latency-${i}"></div>
+                    <div id="mar-${i}" class="mar-display">--</div>
+                    <div id="match-${i}" class="match-indicator text-[10px] text-green-500">MATCH</div>
+                `;
+                bank.id = `bank-${i}`;
+                banksContainer.appendChild(bank);
+            }
+            setTimeout(createBusTaps, 100);
+        }
+
+        function createBusTaps() {
+            busLayer.innerHTML = '';
+            const numBanks = currentTab === 'multi' ? 16 : 1;
+            const addrBusRect = addressBus.getBoundingClientRect();
+            const dataBusRect = dataBus.getBoundingClientRect();
+            const wrapperRect = document.getElementById('banksWrapper').getBoundingClientRect();
+
+            for (let i = 0; i < numBanks; i++) {
+                const bankEl = document.getElementById(`bank-${i}`);
+                if(!bankEl) continue;
+                const bankRect = bankEl.getBoundingClientRect();
+                const centerX = bankRect.left + (bankRect.width / 2) - wrapperRect.left;
+
+                const addrTap = document.createElement('div');
+                addrTap.className = 'bus-tap';
+                addrTap.id = `tap-addr-${i}`;
+                addrTap.style.left = `${centerX}px`;
+                addrTap.style.top = `${bankRect.bottom - wrapperRect.top}px`;
+                addrTap.style.height = `${addrBusRect.top - bankRect.bottom + 4}px`;
+                busLayer.appendChild(addrTap);
+
+                const dataTap = document.createElement('div');
+                dataTap.className = 'bus-tap';
+                dataTap.id = `tap-data-${i}`;
+                dataTap.style.left = `${centerX}px`;
+                dataTap.style.top = `${bankRect.bottom - wrapperRect.top}px`;
+                dataTap.style.height = `${dataBusRect.top - bankRect.bottom + 4}px`;
+                busLayer.appendChild(dataTap);
+            }
+        }
+
+        function reset() {
+            stopAuto();
+            isProcessingStep = false;
+            const stride = currentTab === 'multi' ? parseInt(strideRange.value) : 1;
+            const numBanks = currentTab === 'multi' ? 16 : 1;
+            
+            currentState = {
+                cycles: 0, elementsLoaded: 0, elementsFinished: 0,
+                pendingElements: Array.from({length: VECTOR_LENGTH}, (_, i) => i * stride),
+                bankLocks: new Array(numBanks).fill(0),
+                bankAddresses: new Array(numBanks).fill('--'),
+                currentMAR: '--', currentMDR: '--',
+                dataToReturn: [],
+                lastAction: currentTab === 'multi' ? 'Multi-bank system initialized. Using interleaved mapping.' : 'Single-bank system initialized. All requests bottleneck here.'
+            };
+            updateUI();
+        }
+
+        function stepForward() {
+            if (isProcessingStep) return;
+            
+            const numBanks = currentTab === 'multi' ? 16 : 1;
+            const latency = parseInt(latencySelect.value);
+            
+            if (currentState.elementsFinished >= VECTOR_LENGTH) {
+                stopAuto();
+                return;
+            }
+
+            isProcessingStep = true;
+            updateUI(); // Disable buttons immediately
+
+            currentState.cycles++;
+
+            // 1. Progress Locks
+            for(let i=0; i<numBanks; i++) {
+                if(currentState.bankLocks[i] > 0) {
+                    currentState.bankLocks[i]--;
+                    if(currentState.bankLocks[i] === 0) {
+                        currentState.dataToReturn.push({ bankIdx: i, addr: currentState.bankAddresses[i] });
+                    }
+                }
+            }
+
+            // 2. Broadcast & Issue
+            let broadcastHandled = false;
+            if (currentState.elementsLoaded < VECTOR_LENGTH) {
+                const addr = currentState.pendingElements[0];
+                const bankIdx = addr % numBanks;
+                const isConflict = currentState.bankLocks[bankIdx] > 0;
+                
+                currentState.currentMAR = addr;
+                visualizeBroadcast(bankIdx);
+                broadcastHandled = true;
+
+                setTimeout(() => {
+                    if (!isConflict) {
+                        currentState.elementsLoaded++;
+                        currentState.pendingElements.shift();
+                        currentState.bankLocks[bankIdx] = latency; 
+                        currentState.bankAddresses[bankIdx] = addr;
+                        currentState.lastAction = `<strong>Cycle ${currentState.cycles}:</strong> Addr ${addr} requested. Bank ${bankIdx} matched and busy for ${latency} cycles.`;
+                        triggerVisualEffect(document.getElementById(`bank-${bankIdx}`), 'active');
+                    } else {
+                        currentState.lastAction = `<strong>Cycle ${currentState.cycles}:</strong> Addr ${addr} requested. <span class="text-red-600 font-bold">CONFLICT!</span> Bank ${bankIdx} is busy (dots still active).`;
+                        triggerVisualEffect(document.getElementById(`bank-${bankIdx}`), 'conflict');
+                    }
+                    
+                    isProcessingStep = false;
+                    updateUI();
+                }, 400);
+            } else {
+                currentState.currentMAR = "--";
+                isProcessingStep = false;
+                updateUI();
+            }
+
+            // 3. Data Return (happens in parallel with broadcast animation)
+            if (currentState.dataToReturn.length > 0) {
+                const packet = currentState.dataToReturn.shift();
+                currentState.elementsFinished++;
+                visualizeDataReturn(packet.bankIdx);
+                currentState.currentMDR = `D[${packet.addr}]`;
+            } else {
+                currentState.currentMDR = "--";
+            }
+        }
+
+        function visualizeBroadcast(targetIdx) {
+            addressBus.classList.add('bus-active-addr');
+            const numBanks = currentTab === 'multi' ? 16 : 1;
+            for(let i=0; i<numBanks; i++) {
+                const tap = document.getElementById(`tap-addr-${i}`);
+                if (tap) tap.classList.add('addr-active');
+            }
+            setTimeout(() => {
+                addressBus.classList.remove('bus-active-addr');
+                for(let i=0; i<numBanks; i++) {
+                    const tap = document.getElementById(`tap-addr-${i}`);
+                    if (tap) tap.classList.remove('addr-active');
+                }
+                const matchInd = document.getElementById(`match-${targetIdx}`);
+                if(matchInd) {
+                    matchInd.style.opacity = "1";
+                    setTimeout(() => matchInd.style.opacity = "0", 600);
+                }
+            }, 400);
+        }
+
+        function visualizeDataReturn(bankIdx) {
+            dataBus.classList.add('bus-active-data');
+            const tap = document.getElementById(`tap-data-${bankIdx}`);
+            if(tap) tap.classList.add('data-active');
+            setTimeout(() => {
+                dataBus.classList.remove('bus-active-data');
+                if(tap) tap.classList.remove('data-active');
+            }, 600);
+        }
+
+        function updateUI() {
+            cycleCounter.textContent = currentState.cycles;
+            elCountDisplay.textContent = `${currentState.elementsFinished}/${VECTOR_LENGTH}`;
+            throughputCounter.textContent = currentState.cycles > 0 ? (currentState.elementsFinished / currentState.cycles).toFixed(2) : "0.00";
+            document.getElementById('cpu-mar').textContent = currentState.currentMAR;
+            document.getElementById('cpu-mdr').textContent = currentState.currentMDR;
+            document.getElementById('cpuIdx').textContent = `Idx: ${currentState.elementsLoaded}`;
+            explanationText.innerHTML = currentState.lastAction;
+
+            const latency = parseInt(latencySelect.value);
+            const numBanks = currentTab === 'multi' ? 16 : 1;
+
+            for(let i=0; i<numBanks; i++) {
+                const bankEl = document.getElementById(`bank-${i}`);
+                if(!bankEl) continue;
+                const marEl = document.getElementById(`mar-${i}`);
+                const latencyEl = document.getElementById(`latency-${i}`);
+                marEl.textContent = currentState.bankAddresses[i];
+                if (currentState.bankLocks[i] > 0) {
+                    bankEl.classList.add('busy');
+                    latencyEl.innerHTML = '';
+                    for(let d=0; d<latency; d++) {
+                        const dot = document.createElement('div');
+                        dot.className = `latency-dot ${d < currentState.bankLocks[i] ? 'active' : ''}`;
+                        latencyEl.appendChild(dot);
+                    }
+                } else {
+                    bankEl.classList.remove('busy');
+                    latencyEl.innerHTML = '';
+                }
+            }
+
+            // Button Disabling Logic
+            const simulationRunning = autoInterval !== null;
+            const simulationDone = currentState.elementsFinished >= VECTOR_LENGTH;
+            
+            startBtn.disabled = simulationDone || isProcessingStep;
+            nextBtn.disabled = simulationRunning || simulationDone || isProcessingStep;
+        }
+
+        function triggerVisualEffect(el, cls) {
+            if(!el) return;
+            el.classList.add(cls);
+            setTimeout(() => el.classList.remove(cls), 600);
+        }
+
+        function stopAuto() { 
+            if(autoInterval) { 
+                clearInterval(autoInterval); 
+                autoInterval = null; 
+            } 
+            updateUI(); 
+            startBtn.textContent = "Run Simulation"; 
+        }
+        
+        startBtn.onclick = () => {
+            if(autoInterval) return stopAuto();
+            if(currentState.elementsFinished >= VECTOR_LENGTH) reset();
+            
+            autoInterval = setInterval(stepForward, 1200);
+            startBtn.textContent = "Stop Simulation";
+            updateUI();
+        };
+
+        strideRange.oninput = () => { strideVal.textContent = `Stride: ${strideRange.value}`; reset(); };
+        latencySelect.onchange = reset;
+        nextBtn.onclick = stepForward;
+        resetBtn.onclick = reset;
+        window.onresize = createBusTaps;
+
+        // Initialize
+        initBanks();
+    </script>
+</body>
+</html>

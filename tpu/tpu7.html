@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TPU v7 Interactive Architecture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9;
+        }
+
+        .chip-package {
+            border: 4px dashed #94a3b8;
+            border-radius: 20px;
+            padding: 30px;
+            position: relative;
+            background: white;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08);
+        }
+
+        .tpu-block {
+            border-radius: 8px;
+            border-width: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-weight: 700;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 4px;
+            z-index: 10;
+        }
+
+        .tpu-block:hover {
+            transform: translateY(-2px);
+            filter: brightness(1.05);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .tpu-block.active {
+            ring: 4px;
+            ring-color: #3b82f6;
+            animation: pulse-ring 2s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        .compute { background-color: #dbeafe; border-color: #3b82f6; color: #1e40af; }
+        .memory { background-color: #dcfce7; border-color: #22c55e; color: #14532d; }
+        .interconnect { background-color: #fef9c3; border-color: #eab308; color: #713f12; }
+        .host-if { background-color: #f3e8ff; border-color: #a855f7; color: #581c87; }
+        .management { background-color: #fee2e2; border-color: #ef4444; color: #7f1d1d; }
+        .serdes { background-color: #ede9fe; border-color: #8b5cf6; color: #4c1d95; }
+
+        .path-line {
+            stroke: #cbd5e1;
+            stroke-width: 2.5;
+            fill: none;
+            transition: stroke 0.3s, stroke-width 0.3s;
+        }
+
+        .path-line.active {
+            stroke: #3b82f6;
+            stroke-width: 5;
+            filter: drop-shadow(0 0 4px #3b82f6);
+        }
+
+        .path-mgmt { stroke: #ef4444; opacity: 0.4; stroke-dasharray: 4; }
+
+        .view-layer {
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        .view-hidden {
+            opacity: 0;
+            transform: scale(0.95);
+            pointer-events: none;
+            position: absolute;
+        }
+
+        .key-dot { width: 8px; height: 8px; border-radius: 2px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-30 shrink-0">
+        <div class="flex items-center gap-4">
+            <div>
+                <h1 class="text-xl font-bold text-slate-900">TPU v7 Interactive Deep Dive</h1>
+                <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Future ASIC Architecture (Speculative)</p>
+            </div>
+            <div class="h-8 w-px bg-slate-200"></div>
+            <div class="flex bg-slate-100 p-1 rounded-lg text-xs font-bold">
+                <button id="mode-system" class="px-3 py-1.5 rounded-md bg-white shadow-sm text-blue-600">Full Chip</button>
+                <button id="mode-core" class="px-3 py-1.5 rounded-md text-slate-500 hover:text-slate-700">TensorCore Micro</button>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1">
+                <button id="btn-prev" class="p-2 hover:bg-white rounded-md transition disabled:opacity-30" disabled>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                </button>
+                <span id="step-indicator" class="text-[10px] font-black text-slate-400 uppercase w-24 text-center">Ready</span>
+                <button id="btn-next" class="p-2 hover:bg-white rounded-md transition disabled:opacity-30">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+            <button id="btn-play" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700 transition">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"/></svg>
+                Run Cycle
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden">
+        <section class="flex-1 p-8 overflow-hidden flex items-center justify-center bg-slate-100 relative">
+            
+            <div id="canvas-container" class="relative w-full max-w-6xl aspect-[16/9]">
+                
+                <div id="active-step-label" class="absolute -top-10 left-0 right-0 text-center text-lg font-bold text-blue-600 opacity-0 transition-opacity">
+                    Step Name
+                </div>
+
+                <!-- VIEW 1: FULL CHIP PACKAGE -->
+                <div id="view-system" class="view-layer w-full h-full relative">
+                    <div class="chip-package w-full h-full">
+                        
+                        <!-- Comprehensive Wiring Overlay -->
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 600" style="z-index: 1;">
+                            <defs>
+                                <marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="3" markerHeight="3" orient="auto-start-reverse">
+                                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+                                </marker>
+                                <marker id="arr-active" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="3" markerHeight="3" orient="auto-start-reverse">
+                                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
+                                </marker>
+                            </defs>
+                            
+                            <!-- Inter-Chip Scaling Connections -->
+                            <path class="path-line" d="M 920 150 L 980 150" marker-end="url(#arr)" />
+                            <path class="path-line" d="M 920 200 L 980 200" marker-end="url(#arr)" />
+                            <path class="path-line" d="M 920 250 L 980 250" marker-end="url(#arr)" />
+
+                            <!-- Logic Bisection Mesh (Conceptual) -->
+                            <g opacity="0.15">
+                                <path class="path-line" d="M 200 400 L 750 400" />
+                                <path class="path-line" d="M 350 350 L 350 450" />
+                                <path class="path-line" d="M 600 350 L 600 450" />
+                            </g>
+
+                            <!-- Primary Data Flows -->
+                            <path id="flow-host-pcie" class="path-line" d="M 120 70 L 120 180" marker-end="url(#arr)" />
+                            <path id="flow-pcie-main" class="path-line" d="M 150 280 L 190 280" marker-end="url(#arr)" />
+                            <path id="flow-main-tc1" class="path-line" d="M 350 370 L 350 310" marker-end="url(#arr)" />
+                            <path id="flow-main-tc2" class="path-line" d="M 600 370 L 600 310" marker-end="url(#arr)" />
+                            <path id="flow-main-ici" class="path-line" d="M 750 395 L 800 395" marker-end="url(#arr)" />
+
+                            <!-- Management Loop -->
+                            <path class="path-line path-mgmt" d="M 120 130 L 120 180" />
+                            <path class="path-line path-mgmt" d="M 120 400 L 200 400" />
+
+                            <!-- HBM Logic Lines -->
+                            <path id="hbm-line-1" class="path-line" d="M 400 460 L 400 510" marker-end="url(#arr)" />
+                            <path id="hbm-line-2" class="path-line" d="M 485 460 L 485 510" marker-end="url(#arr)" />
+                            <path id="hbm-line-3" class="path-line" d="M 570 460 L 570 510" marker-end="url(#arr)" />
+                            <path id="hbm-line-4" class="path-line" d="M 655 460 L 655 510" marker-end="url(#arr)" />
+
+                            <circle id="anim-dot" class="data-packet" r="4.5" />
+                        </svg>
+
+                        <!-- Legend Key -->
+                        <div class="absolute bottom-4 left-4 bg-slate-50 border border-slate-200 p-2 rounded-lg text-[9px] flex flex-col gap-1 z-20">
+                            <div class="flex items-center gap-2"><div class="key-dot compute"></div> Compute Unit</div>
+                            <div class="flex items-center gap-2"><div class="key-dot memory"></div> Memory / DMA</div>
+                            <div class="flex items-center gap-2"><div class="key-dot interconnect"></div> High-Radix Switch</div>
+                            <div class="flex items-center gap-2"><div class="key-dot management"></div> Management</div>
+                        </div>
+
+                        <!-- LEFT ZONE: HOST & I/O -->
+                        <div class="absolute left-6 top-6 bottom-6 w-[12%] flex flex-col gap-4">
+                            <div class="tpu-block host-if h-16" id="host">Host CPU</div>
+                            <div class="tpu-block management h-12" id="gbmc">gBMC</div>
+                            <div class="flex-1 border-t border-slate-200 mt-4 pt-4 flex flex-col gap-2">
+                                <div class="tpu-block host-if h-32" id="pcie-gen6">PCIe Gen6 x16</div>
+                                <div class="tpu-block management h-12" id="pcie-gen2">Legacy I/O</div>
+                            </div>
+                        </div>
+
+                        <!-- CENTER ZONE: THE COMPUTE CORE -->
+                        <div class="absolute left-[18%] right-[22%] top-6 bottom-6 flex flex-col gap-6">
+                            
+                            <!-- TensorCore Pair -->
+                            <div class="flex gap-8 h-[270px]">
+                                <!-- TensorCore 1 -->
+                                <div class="flex-1 border-2 border-blue-100 bg-blue-50/20 rounded-2xl p-4 flex flex-col gap-3 relative" id="tc-1">
+                                    <div class="absolute -top-3 left-4 bg-white px-2 text-[10px] font-black text-blue-400">TensorCore 0</div>
+                                    <div class="tpu-block compute h-9 shadow-sm" id="tcs-1">TCS Dispatcher</div>
+                                    <div class="flex gap-2 flex-1">
+                                        <div class="tpu-block compute w-12 text-[9px]" id="xlu-1-l">XLU L</div>
+                                        <div class="tpu-block compute flex-1 flex flex-col justify-center gap-1" id="vpu-1">
+                                            <span>VPU Unit</span>
+                                            <div class="w-10 h-1.5 bg-blue-200 rounded-full mx-auto"></div>
+                                        </div>
+                                        <div class="tpu-block compute w-12 text-[9px]" id="xlu-1-r">XLU R</div>
+                                    </div>
+                                    <div class="tpu-block compute h-20 shadow-md" id="mxu-1">MXU (Matrix)</div>
+                                </div>
+
+                                <!-- TensorCore 2 -->
+                                <div class="flex-1 border-2 border-blue-100 bg-blue-50/20 rounded-2xl p-4 flex flex-col gap-3 relative" id="tc-2">
+                                    <div class="absolute -top-3 left-4 bg-white px-2 text-[10px] font-black text-blue-400">TensorCore 1</div>
+                                    <div class="tpu-block compute h-9 shadow-sm" id="tcs-2">TCS Dispatcher</div>
+                                    <div class="flex gap-2 flex-1">
+                                        <div class="tpu-block compute w-12 text-[9px]" id="xlu-2-l">XLU L</div>
+                                        <div class="tpu-block compute flex-1 flex flex-col justify-center gap-1" id="vpu-2">
+                                            <span>VPU Unit</span>
+                                            <div class="w-10 h-1.5 bg-blue-200 rounded-full mx-auto"></div>
+                                        </div>
+                                        <div class="tpu-block compute w-12 text-[9px]" id="xlu-2-r">XLU R</div>
+                                    </div>
+                                    <div class="tpu-block compute h-20 shadow-md" id="mxu-2">MXU (Matrix)</div>
+                                </div>
+                            </div>
+
+                            <!-- High-Speed Bisection Interconnect -->
+                            <div class="h-16 tpu-block interconnect shadow-lg" id="mem-interconnect">
+                                <span class="tracking-tight">Memory & DMA Bisection Interconnect Highway (Terabit/s)</span>
+                            </div>
+
+                            <!-- Sparse/Logic Strip -->
+                            <div class="flex gap-4 h-24">
+                                <div class="w-[18%] tpu-block management" id="chip-manager">Chip Manager</div>
+                                <div class="flex-1 flex gap-2">
+                                    <div class="tpu-block compute flex-1" id="sparse-1">Sparse Core 0</div>
+                                    <div class="tpu-block compute flex-1" id="sparse-2">Sparse Core 1</div>
+                                </div>
+                                <div class="flex-[1.8] grid grid-cols-4 gap-1.5">
+                                    <div class="tpu-block memory" id="hbm-ctrl-1">HBM Ctr</div>
+                                    <div class="tpu-block memory" id="hbm-ctrl-2">HBM Ctr</div>
+                                    <div class="tpu-block memory" id="hbm-ctrl-3">HBM Ctr</div>
+                                    <div class="tpu-block memory" id="hbm-ctrl-4">HBM Ctr</div>
+                                </div>
+                            </div>
+
+                            <!-- HBM Physical Stacks -->
+                            <div class="flex justify-end gap-3 mt-auto h-24 px-6">
+                                <div class="tpu-block memory w-24 border-b-8 border-r-8 border-slate-200" id="hbm-1">HBM4<br>Stack 0</div>
+                                <div class="tpu-block memory w-24 border-b-8 border-r-8 border-slate-200" id="hbm-2">HBM4<br>Stack 1</div>
+                                <div class="tpu-block memory w-24 border-b-8 border-r-8 border-slate-200" id="hbm-3">HBM4<br>Stack 2</div>
+                                <div class="tpu-block memory w-24 border-b-8 border-r-8 border-slate-200" id="hbm-4">HBM4<br>Stack 3</div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT ZONE: ICI (SCALE OUT) -->
+                        <div class="absolute right-6 top-6 bottom-6 w-[18%] border-2 border-slate-200 rounded-2xl p-6 flex flex-col gap-6 bg-slate-50/10" id="ici">
+                            <div class="absolute -top-3 left-4 bg-white px-2 text-[10px] font-black text-slate-400">Inter-Chip Interconnect</div>
+                            <div class="tpu-block interconnect flex-1" id="icr-router">ICR Router</div>
+                            <div class="tpu-block interconnect h-28" id="link-stack">ICI Link Stack</div>
+                            <div class="tpu-block serdes h-28 text-[9px] leading-tight" id="serdes">6x 224G SerDes Octals<br>(Scale-out I/O)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW 2: TENSORCORE MICRO-VIEW (DEEP DIVE) -->
+                <div id="view-core" class="view-layer view-hidden w-full h-full bg-white border-2 border-blue-200 rounded-3xl flex flex-col p-12">
+                    <div class="flex justify-between items-end mb-10 border-b-2 border-slate-100 pb-6">
+                        <div>
+                            <h2 class="text-4xl font-black text-blue-600 mb-1 tracking-tight">VLIW TensorCore</h2>
+                            <p class="text-slate-500 font-bold text-sm tracking-widest uppercase">Decoupled Matrix-Vector Pipeline</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-black text-blue-400 uppercase">Architecture Peak</span>
+                            <div class="text-3xl font-mono font-black text-slate-800">10.5 PFLOPS</div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-12 gap-8 flex-1">
+                        <!-- Left: Command Center -->
+                        <div class="col-span-3 flex flex-col gap-6">
+                            <div class="flex-1 tpu-block compute p-8 flex flex-col gap-4 text-left items-start" id="micro-tcs">
+                                <span class="text-2xl">TCS brain</span>
+                                <p class="text-[10px] font-normal leading-relaxed text-blue-700">Decodes <b>VLIW</b> instructions and dispatches parallel streams to the units below.</p>
+                            </div>
+                            <div class="h-32 tpu-block interconnect text-sm" id="micro-dma">DMA Orchestrator</div>
+                        </div>
+
+                        <!-- Center: High-Bisection Compute Core -->
+                        <div class="col-span-6 border-4 border-slate-100 bg-slate-50/40 rounded-[32px] p-8 flex flex-col gap-8 shadow-inner">
+                            <div class="flex gap-4 h-28">
+                                <div class="flex-1 tpu-block compute text-base" id="micro-xlu-1">XLU Left</div>
+                                <div class="flex-1 tpu-block compute text-base" id="micro-xlu-2">XLU Right</div>
+                            </div>
+                            <div class="flex-1 tpu-block compute relative group overflow-hidden" id="micro-mxu">
+                                <div class="absolute inset-0 opacity-[0.08] grid grid-cols-12 grid-rows-12 gap-1 p-3">
+                                    <script>for(let i=0; i<144; i++) document.write('<div class="bg-blue-600 rounded-[1px]"></div>');</script>
+                                </div>
+                                <div class="flex flex-col items-center">
+                                    <span class="text-4xl font-black mb-2 tracking-tighter">MXU MATRIX</span>
+                                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-widest">256x256 Systolic Array</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Memory Scratchpad -->
+                        <div class="col-span-3 flex flex-col gap-6">
+                            <div class="flex-1 tpu-block compute p-6 flex flex-col gap-4 items-start text-left" id="micro-vpu">
+                                <span class="text-2xl">VPU</span>
+                                <p class="text-[10px] font-normal text-blue-700">Pointwise ops (ReLU, GeLU). Transfers data between MXU results and HBM.</p>
+                                <div class="w-full space-y-1.5 mt-2">
+                                    <div class="h-1 bg-blue-300 w-full rounded-full"></div>
+                                    <div class="h-1 bg-blue-400 w-5/6 rounded-full"></div>
+                                    <div class="h-1 bg-blue-500 w-2/3 rounded-full"></div>
+                                </div>
+                            </div>
+                            <div class="h-1/2 tpu-block memory p-6 flex flex-col justify-end items-start text-left" id="micro-vmem">
+                                <span class="text-lg">Vmem</span>
+                                <span class="text-[10px] font-normal opacity-70">Software-Managed Scratchpad</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Right Sidepanel: Narrower for better left visibility -->
+        <aside class="w-72 bg-white border-l border-slate-200 p-6 flex flex-col gap-5 shadow-2xl z-20 shrink-0">
+            <div id="info-header">
+                <h3 id="info-title" class="text-xl font-black text-slate-800 leading-tight">Architecture Deep Dive</h3>
+                <div id="info-tag" class="inline-block mt-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-500">Infrastructure</div>
+            </div>
+
+            <div id="info-body" class="text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-4">
+                TPU v7 is designed to tackle the <b>Memory Wall</b> and <b>Scale-out Bottlenecks</b> that limit LLM training.
+                <br><br>
+                <span class="text-blue-500 font-bold">💡 Click any block on the diagram to see its functional details.</span>
+            </div>
+
+            <div id="info-bullets" class="space-y-4">
+                <div id="special-note" class="bg-blue-50 p-3 rounded-xl border border-blue-100 hidden">
+                    <h4 class="text-[9px] font-black text-blue-600 uppercase mb-1.5">Why it's special</h4>
+                    <p id="special-text" class="text-[10px] text-blue-800 leading-normal"></p>
+                </div>
+            </div>
+
+            <div id="info-stats" class="mt-auto p-4 bg-slate-900 rounded-2xl border border-slate-800 hidden">
+                <h4 class="text-[9px] font-black text-slate-500 uppercase mb-2">Unit Specifications</h4>
+                <div class="space-y-2.5" id="stats-container"></div>
+            </div>
+        </aside>
+    </main>
+
+    <script>
+        const archData = {
+            'host': { 
+                title: 'Host CPU (x86/ARM)', tag: 'External', 
+                desc: 'The global orchestrator. It dispatches graph segments to the TPU pods and manages heavy-duty I/O buffering.', 
+                special: 'In TPU v7, the Host is decoupled. It can manage multiple TPU chips as a single logical entity via PCIe Gen6.',
+                specs: {'Protocol': 'PCIe Gen6 x16', 'Bisection': '256 GB/s'} 
+            },
+            'gbmc': {
+                title: 'gBMC Management', tag: 'Management',
+                desc: 'The global Baseboard Management Controller. Handles thermal monitoring, power sequencing, and security attestation.',
+                special: 'Features an independent Root of Trust for hardware-level secure boot across the entire Pod.',
+                specs: {'Interface': 'OpenBMC', 'Network': '1GbE Out-of-band'}
+            },
+            'pcie': {
+                title: 'PCIe Gen6 Highway', tag: 'Host I/O',
+                desc: 'The primary data conduit between the Host CPU and the TPU chip.',
+                special: 'Gen6 utilizes PAM4 signaling to double the bandwidth over Gen5, reaching 256GB/s in x16 configuration.',
+                specs: {'Standard': 'PCIe 6.0', 'Bandwidth': '256 GB/s'}
+            },
+            'tcs': { 
+                title: 'TCS Dispatcher', tag: 'Compute', 
+                desc: 'TensorCore Scheduler. Brain of each core. It decodes the VLIW instruction stream and manages task parallelism.', 
+                special: 'Uses a VLIW (Very Long Instruction Word) design. In v7, it features enhanced branch prediction for sparse workloads.',
+                specs: {'Issue Rate': '1 instr / cycle', 'Architecture': 'VLIW Pipeline'} 
+            },
+            'mxu': { 
+                title: 'Matrix Execution Unit', tag: 'Compute', 
+                desc: 'The mathematical powerhouse for dot products. It performs the bulk of the training and inference math.', 
+                special: 'Upgraded to a 256x256 grid in TPU v7, delivering 4x the density of previous generations.',
+                specs: {'Grid': '256 x 256', 'Peak TFLOPS': '10,500 (FP8)'} 
+            },
+            'vpu': { 
+                title: 'Vector Processing Unit', tag: 'Compute', 
+                desc: 'Specialized for element-wise ops (ReLU, Norms) and complex reduction math like Softmax.', 
+                special: 'Expanded to 256-way SIMD lanes to match the increased throughput of the MXU.',
+                specs: {'Lanes': '256-way SIMD', 'Type': 'Vector Reg File'} 
+            },
+            'xlu': {
+                title: 'XLU (Cross-Lane Unit)', tag: 'Compute',
+                desc: 'Handles data reshuffling and cross-lane communication within the TensorCore.',
+                special: 'Essential for Transpose operations and Fast Fourier Transforms (FFT) used in signal processing.',
+                specs: {'Type': 'Permutation Engine', 'Width': '512-bit'}
+            },
+            'hbm': { 
+                title: 'HBM4 Memory Stack', tag: 'Memory', 
+                desc: 'Next-generation High Bandwidth Memory. It stores model weights and layer activations.', 
+                special: 'HBM4 provides over 2TB/s of bandwidth per stack, crucial for 100T+ parameter models.',
+                specs: {'Type': 'HBM4', 'Capacity': 'Up to 384GB/chip'} 
+            },
+            'mem': {
+                title: 'Mesh Interconnect', tag: 'Interconnect',
+                desc: 'The on-chip bisection interconnect that moves data between cores and HBM controllers.',
+                special: 'A high-radix crossbar switch that prevents internal bottlenecks during heavy DMA traffic.',
+                specs: {'Type': 'High-Radix Crossbar', 'Bisection': '12 Tbps'}
+            },
+            'ici': { 
+                title: 'Inter-Chip Interconnect', tag: 'Interconnect', 
+                desc: 'Scale-out fabric that connects chips together into a supercomputer pod (Scale-out I/O).', 
+                special: 'TPU v7 uses an Optical ICI link for even lower latency across racks.',
+                specs: {'Topology': '3D Torus / Mesh', 'Bandwidth': 'Multi-Terabit'}
+            },
+            'sparse': { 
+                title: 'Sparse Core', tag: 'Compute', 
+                desc: 'Optimized for Recommendation models and Embedding lookups (scatter/gather data patterns).', 
+                special: 'Prevents TensorCores from wasting power on simple lookups, making YouTube/Search recs efficient.',
+                specs: {'Mode': 'Gather / Scatter DMA'} 
+            },
+            'chip': {
+                title: 'Chip Manager', tag: 'Management',
+                desc: 'On-chip micro-controller that handles clock gating and power management.',
+                special: 'Automatically scales voltage/frequency based on the workload intensity to maximize perf/watt.',
+                specs: {'Type': 'RISC-V Management', 'Control': 'Dynamic Frequency'}
+            },
+            'dma': {
+                title: 'DMA Orchestrator', tag: 'Memory',
+                desc: 'The Direct Memory Access engine. It moves data between the TensorCore scratchpad (Vmem) and the global HBM memory.',
+                special: 'Features an "Async-DMA" pipeline that can hide memory latency by pre-fetching the next layer\'s weights.',
+                specs: {'Channels': '16 Independent', 'Protocol': 'Descriptor-based'}
+            },
+            'vmem': {
+                title: 'Vmem Scratchpad', tag: 'Memory',
+                desc: 'Software-managed local memory for each TensorCore. It stores activations and weights for immediate compute.',
+                special: 'Decoupled from the MXU to allow the Vector Unit to process data while the Matrix Unit is busy.',
+                specs: {'Size': '64MB per Core', 'Bandwidth': 'On-die Terabit'}
+            }
+        };
+
+        const phases = [
+            {
+                name: "1. Data Dispatch",
+                label: "Host streams training tokens through PCIe Gen6 highway",
+                run: async () => {
+                    highlight('host');
+                    await moveDot('flow-host-pcie');
+                    highlight('pcie-gen6');
+                    highlight('mem-interconnect');
+                }
+            },
+            {
+                name: "2. Weight Pre-fetch",
+                label: "Weights streamed from HBM4 into TensorCore Vmem",
+                run: async () => {
+                    highlight('hbm-1');
+                    highlight('hbm-ctrl-1');
+                    highlightPath('flow-main-tc1');
+                    await sleep(400);
+                    highlight('vpu-1');
+                }
+            },
+            {
+                name: "3. Parallel Compute",
+                label: "VLIW Instructions drive MXU and VPU in tandem",
+                run: async () => {
+                    highlight('tcs-1');
+                    highlight('tcs-2');
+                    await sleep(300);
+                    highlight('mxu-1');
+                    highlight('mxu-2');
+                    highlight('vpu-1');
+                    highlight('vpu-2');
+                }
+            },
+            {
+                name: "4. Torus All-Reduce",
+                label: "Gradients synced across the Pod via ICI links",
+                run: async () => {
+                    highlightPath('flow-main-ici');
+                    await sleep(300);
+                    highlight('icr-router');
+                    highlight('serdes');
+                    highlight('link-stack');
+                }
+            }
+        ];
+
+        let step = -1;
+        let rId = 0;
+
+        function updatePanel(id) {
+            let key = id;
+            if (key.startsWith('micro-')) key = key.replace('micro-', '');
+            
+            // Handle aliases and parts
+            if (key.includes('hbm-ctrl') || key.includes('hbm-')) key = 'hbm';
+            if (key.includes('pcie')) key = 'pcie';
+            if (key.includes('xlu')) key = 'xlu';
+            if (key.includes('mem-interconnect')) key = 'mem';
+            if (key.includes('chip-manager')) key = 'chip';
+            if (key.includes('ici') || key.includes('icr') || key.includes('serdes') || key.includes('link')) key = 'ici';
+            if (key.includes('dma')) key = 'dma';
+            if (key.includes('vmem')) key = 'vmem';
+
+            const parts = key.split('-');
+            if (!archData[key] && archData[parts[0]]) key = parts[0];
+
+            const data = archData[key];
+            if (!data) return;
+
+            document.getElementById('info-title').innerText = data.title;
+            document.getElementById('info-tag').innerText = data.tag;
+            document.getElementById('info-body').innerHTML = data.desc; // Use innerHTML to support breaks
+            
+            const specialNote = document.getElementById('special-note');
+            const specialText = document.getElementById('special-text');
+            if (data.special) {
+                specialNote.classList.remove('hidden');
+                specialText.innerText = data.special;
+            } else {
+                specialNote.classList.add('hidden');
+            }
+
+            const container = document.getElementById('stats-container');
+            document.getElementById('info-stats').classList.remove('hidden');
+            container.innerHTML = '';
+            for (const [k, v] of Object.entries(data.specs)) {
+                container.innerHTML += `<div class="flex justify-between text-[10px]"><span class="text-slate-500 font-bold">${k}</span><span class="font-bold text-slate-300">${v}</span></div>`;
+            }
+        }
+
+        document.querySelectorAll('.tpu-block').forEach(b => b.onclick = () => updatePanel(b.id));
+
+        document.getElementById('mode-system').onclick = () => {
+            document.getElementById('view-system').classList.remove('view-hidden');
+            document.getElementById('view-core').classList.add('view-hidden');
+            document.getElementById('mode-system').className = "px-3 py-1.5 rounded-md bg-white shadow-sm text-blue-600";
+            document.getElementById('mode-core').className = "px-3 py-1.5 rounded-md text-slate-500 hover:text-slate-700";
+        };
+
+        document.getElementById('mode-core').onclick = () => {
+            document.getElementById('view-core').classList.remove('view-hidden');
+            document.getElementById('view-system').classList.add('view-hidden');
+            document.getElementById('mode-core').className = "px-3 py-1.5 rounded-md bg-white shadow-sm text-blue-600";
+            document.getElementById('mode-system').className = "px-3 py-1.5 rounded-md text-slate-500 hover:text-slate-700";
+        };
+
+        async function playStep(idx) {
+            if (idx < 0 || idx >= phases.length) return;
+            rId++;
+            resetVisuals();
+            step = idx;
+            const s = phases[idx];
+            document.getElementById('active-step-label').innerText = s.label;
+            document.getElementById('active-step-label').classList.add('opacity-100');
+            document.getElementById('step-indicator').innerText = s.name;
+            updateButtons();
+            await s.run();
+        }
+
+        function resetVisuals() {
+            document.querySelectorAll('.tpu-block').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.path-line').forEach(p => p.classList.remove('active'));
+            document.getElementById('anim-dot').style.opacity = '0';
+            document.getElementById('active-step-label').classList.remove('opacity-100');
+        }
+
+        function highlight(id) { document.getElementById(id)?.classList.add('active'); }
+        function highlightPath(id) { document.getElementById(id)?.classList.add('active'); }
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        async function moveDot(pathId) {
+            const dot = document.getElementById('anim-dot');
+            const path = document.getElementById(pathId);
+            path.classList.add('active');
+            dot.style.opacity = '1';
+            const anim = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion");
+            anim.setAttribute("dur", "800ms");
+            anim.setAttribute("repeatCount", "1");
+            anim.setAttribute("fill", "freeze");
+            const mpath = document.createElementNS("http://www.w3.org/2000/svg", "mpath");
+            mpath.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", `#${pathId}`);
+            anim.appendChild(mpath);
+            dot.appendChild(anim);
+            anim.beginElement();
+            await sleep(800);
+            dot.style.opacity = '0';
+            dot.innerHTML = '';
+        }
+
+        function updateButtons() {
+            document.getElementById('btn-prev').disabled = step <= 0;
+            document.getElementById('btn-next').disabled = step >= phases.length - 1;
+        }
+
+        document.getElementById('btn-next').onclick = () => playStep(step + 1);
+        document.getElementById('btn-prev').onclick = () => playStep(step - 1);
+        
+        document.getElementById('btn-play').onclick = async () => {
+            const current = ++rId;
+            for (let i = 0; i < phases.length; i++) {
+                if (current !== rId) break;
+                await playStep(i);
+                await sleep(1500);
+            }
+        };
+    </script>
+</body>
+</html>
