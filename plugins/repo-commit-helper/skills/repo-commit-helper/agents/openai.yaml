@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Commit Helper"
+  short_description: "Commit assistant for ml-concept-visualizer"
+  default_prompt: "Use $repo-commit-helper to analyze staged changes, ask to stage all if nothing is staged, and draft or make a Conventional Commit for this repo."

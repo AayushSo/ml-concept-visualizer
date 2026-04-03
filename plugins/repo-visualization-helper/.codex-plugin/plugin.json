@@ -1,0 +1,40 @@
+{
+  "name": "repo-visualization-helper",
+  "version": "0.1.0",
+  "description": "Repo-local helper for creating, reviewing, and polishing visualizer pages in ml-concept-visualizer.",
+  "author": {
+    "name": "Arash Saifhashemi",
+    "url": "https://github.com/ourarash"
+  },
+  "homepage": "https://github.com/ourarash/ml-concept-visualizer",
+  "repository": "https://github.com/ourarash/ml-concept-visualizer",
+  "license": "MIT",
+  "keywords": [
+    "visualization",
+    "html",
+    "education",
+    "cuda",
+    "review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Repo Visualization Helper",
+    "shortDescription": "Build and review repo-native visualizer pages",
+    "longDescription": "Helps create, improve, and review standalone HTML visualizers for this repository, including educational flow, responsive canvas behavior, catalog integration, and repo consistency checks.",
+    "developerName": "Arash Saifhashemi",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ourarash/ml-concept-visualizer",
+    "privacyPolicyURL": "https://github.com/ourarash/ml-concept-visualizer",
+    "termsOfServiceURL": "https://github.com/ourarash/ml-concept-visualizer",
+    "defaultPrompt": [
+      "Use $repo-visualization-helper to add a new visualizer page to this repo.",
+      "Use $repo-visualization-helper to review a visualizer for clarity, responsiveness, and educational flow.",
+      "Use $repo-visualization-helper to update a page and keep index and checks in sync."
+    ],
+    "brandColor": "#0F766E"
+  }
+}

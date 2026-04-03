@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CUDA Hardware Scheduling Comparison</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow-x: hidden;
+        }
+        canvas {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: #ffffff;
+            border-radius: 0.5rem;
+            max-width: 100%;
+            height: auto;
+            image-rendering: -webkit-optimize-contrast;
+        }
+        .btn-active {
+            background-color: #10b981 !important;
+            color: white !important;
+            border-color: #059669 !important;
+        }
+        .btn-mode-active {
+            background-color: #6366f1 !important;
+            color: white !important;
+            border-color: #4338ca !important;
+        }
+        .btn-workload-active {
+            background-color: #3b82f6 !important;
+            color: white !important;
+            border-color: #2563eb !important;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center py-6 px-4 min-h-screen">
+
+    <div class="max-w-6xl w-full">
+        <div class="text-center mb-4">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">GPU Scheduling Strategies</h1>
+            <p class="text-gray-600 text-sm">
+                Compare <strong>Synchronous Waves</strong> (traditional abstraction) vs. <strong>Dynamic Asynchronous</strong> (realistic hardware) scheduling.
+            </p>
+        </div>
+
+        <div class="flex flex-col gap-4 bg-white p-4 rounded-lg shadow mb-4">
+            <!-- Hardware & Mode Selection -->
+            <div class="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold text-gray-700 w-full md:w-auto text-sm">Hardware:</span>
+                    <button id="btn-profile-0" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors" onclick="setProfile(0)">2 SMs</button>
+                    <button id="btn-profile-1" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors btn-active" onclick="setProfile(1)">4 SMs</button>
+                    <button id="btn-profile-2" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors" onclick="setProfile(2)">8 SMs</button>
+                    <button id="btn-profile-3" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors" onclick="setProfile(3)">16 SMs</button>
+                    <button id="btn-profile-4" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors" onclick="setProfile(4)">32 SMs</button>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold text-gray-700 text-sm">Scheduling Strategy:</span>
+                    <button id="btn-mode-sync" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors" onclick="setSchedulingMode('sync')">
+                        Synchronous Waves
+                    </button>
+                    <button id="btn-mode-async" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors btn-mode-active" onclick="setSchedulingMode('async')">
+                        Dynamic Asynchronous
+                    </button>
+                </div>
+            </div>
+
+            <!-- Workload & Controls -->
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold text-gray-700 text-sm">Occupancy:</span>
+                    <button id="btn-workload-light" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors btn-workload-active" onclick="setWorkload('light')">
+                        Light (4 Slots/SM)
+                    </button>
+                    <button id="btn-workload-heavy" class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded border border-gray-300 transition-colors" onclick="setWorkload('heavy')">
+                        Heavy (1 Slot/SM)
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <div class="bg-slate-800 text-white px-3 py-2 rounded font-mono text-sm shadow-inner min-w-[160px] text-center">
+                        PROCESSED: <span id="progress-display">0 / 8</span>
+                    </div>
+
+                    <div class="flex items-center bg-gray-100 rounded border border-gray-300 overflow-hidden shadow-sm">
+                        <button class="px-3 py-2 hover:bg-gray-200 text-gray-700 transition-colors border-r border-gray-300" onclick="resetSim()" title="Reset">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                <path fill-rule="evenodd" d="M12.5 15a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 1 0v13a.5.5 0 0 1-.5.5M10 8a.5.5 0 0 1-.5.5H3.707l2.147 2.146a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708l3-3a.5.5 0 1 1 .708.708L3.707 7.5H9.5a.5.5 0 0 1 .5.5"/>
+                            </svg>
+                        </button>
+                        <button id="btn-play-pause" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center gap-2 text-sm border-r border-gray-300 min-w-[90px] justify-center" onclick="togglePlay()">
+                            <svg id="icon-play" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+                            </svg>
+                            <svg id="icon-pause" class="hidden" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/>
+                            </svg>
+                            <span id="text-play-pause">Play</span>
+                        </button>
+                        <button class="px-3 py-2 hover:bg-gray-200 text-gray-700 transition-colors" onclick="stepToNextEvent()" title="Next Milestone">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="explanation-box" class="mb-4 text-center p-3 bg-blue-50 text-blue-800 rounded border border-blue-200 min-h-[50px] flex items-center justify-center text-sm">
+            <!-- Dynamic text -->
+        </div>
+
+        <div class="flex justify-center w-full">
+            <canvas id="vizCanvas" width="1000" height="750"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('vizCanvas');
+        const ctx = canvas.getContext('2d');
+        const explanationBox = document.getElementById('explanation-box');
+        const progressDisplay = document.getElementById('progress-display');
+
+        const scale = window.devicePixelRatio || 1;
+        canvas.width = 1000 * scale;
+        canvas.height = 750 * scale;
+        canvas.style.width = '1000px';
+        canvas.style.height = '750px';
+        ctx.scale(scale, scale);
+
+        const PROFILES = [
+            { sm: 2, blocks: 16, cols: 8 },
+            { sm: 4, blocks: 16, cols: 8 },
+            { sm: 8, blocks: 32, cols: 16 },
+            { sm: 16, blocks: 64, cols: 16 },
+            { sm: 32, blocks: 256, cols: 32 }
+        ];
+
+        let currentProfileIdx = 1;
+        let workloadType = 'light';
+        let schedulingMode = 'async'; 
+        
+        const TRANSIT_DURATION = 600; 
+        const BASE_EXEC_DURATION = 2000;
+        const GLOW_DURATION = 1000; // Time SM stays green after finishing
+        
+        const COLORS = {
+            progBg: '#e2f0d9', progBorder: '#93b874',
+            gpuBg: '#e8f4f8', gpuBorder: '#5b9bd5',
+            smBg: '#ffffff', smBorder: '#a5b6c7',
+            blockWait: '#e2e8f0', blockWaitBorder: '#94a3b8',
+            blockTransit: '#fde047', blockTransitBorder: '#eab308',
+            blockExec: '#fef08a', blockExecBorder: '#ca8a04', blockExecFill: '#eab308',
+            blockDone: '#86efac', blockDoneBorder: '#22c55e',
+            glowFill: 'rgba(34, 197, 94, 0.4)',
+            textDark: '#1e293b'
+        };
+
+        let blocks = [];
+        let sms = [];
+        let layout = {};
+        let simTime = 0;
+        let lastRealTime = 0;
+        let isPlaying = false; 
+        let animationFrameId = null;
+
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function setProfile(idx) {
+            currentProfileIdx = idx;
+            document.querySelectorAll('button[id^="btn-profile-"]').forEach(btn => btn.classList.remove('btn-active'));
+            document.getElementById(`btn-profile-${idx}`).classList.add('btn-active');
+            updateExplanation();
+            resetSim();
+        }
+
+        function setWorkload(type) {
+            workloadType = type;
+            document.querySelectorAll('button[id^="btn-workload-"]').forEach(btn => btn.classList.remove('btn-workload-active'));
+            document.getElementById(`btn-workload-${type}`).classList.add('btn-workload-active');
+            updateExplanation();
+            resetSim();
+        }
+
+        function setSchedulingMode(mode) {
+            schedulingMode = mode;
+            document.querySelectorAll('button[id^="btn-mode-"]').forEach(btn => btn.classList.remove('btn-mode-active'));
+            document.getElementById(`btn-mode-${mode}`).classList.add('btn-mode-active');
+            updateExplanation();
+            resetSim();
+        }
+
+        function updateExplanation() {
+            const p = PROFILES[currentProfileIdx];
+            const maxPerSm = workloadType === 'light' ? 4 : 1;
+            if (schedulingMode === 'sync') {
+                explanationBox.innerHTML = `<span><strong>Synchronous Waves:</strong> The hardware processes batches of <strong>${p.sm * maxPerSm} blocks</strong>. SMs glow green when finished but stay occupied until the entire wave retires.</span>`;
+            } else {
+                explanationBox.innerHTML = `<span><strong>Dynamic Asynchronous:</strong> SM slots glow green for 1s after a block finishes before becoming available for the next assignment.</span>`;
+            }
+            updateProgressDisplay();
+        }
+
+        function updateProgressDisplay() {
+            const p = PROFILES[currentProfileIdx];
+            const completed = blocks.filter(b => b.state === 'DONE').length;
+            progressDisplay.innerText = `${completed} / ${p.blocks}`;
+        }
+
+        function calculateLayout() {
+            const p = PROFILES[currentProfileIdx];
+            const maxPerSm = workloadType === 'light' ? 4 : 1;
+            layout = {
+                prog: { x: 20, y: 20, w: 960, h: 260 },
+                gpu:  { x: 20, y: 380, w: 960, h: 350 }
+            };
+            const cols = p.cols;
+            const rows = Math.ceil(p.blocks / cols);
+            const gridPad = 15;
+            const gap = p.blocks > 64 ? 2 : p.blocks > 16 ? 4 : 10;
+            const availW = layout.prog.w - gridPad * 2;
+            const availH = layout.prog.h - 40;
+            const originBlockW = (availW - gap * (cols - 1)) / cols;
+            const originBlockH = (availH - gap * (rows - 1)) / rows;
+            const smGap = p.sm > 16 ? 4 : p.sm > 8 ? 8 : 15;
+            const smPadX = 15;
+            const smPadY = 40;
+            const availGpuW = layout.gpu.w - smPadX * 2;
+            const smW = (availGpuW - smGap * (p.sm - 1)) / p.sm;
+            const smH = layout.gpu.h - smPadY - 15;
+            const smBlockPad = p.sm > 16 ? 2 : 5;
+            const smBlockGap = p.sm > 16 ? 2 : 4;
+            const smBlockW = smW - smBlockPad * 2;
+            const smBlockH = (smH - smBlockPad * 2 - smBlockGap * (maxPerSm - 1)) / maxPerSm;
+            layout.smBlockGeo = { w: smBlockW, h: smBlockH, pad: smBlockPad, gap: smBlockGap };
+            
+            sms = [];
+            for (let i = 0; i < p.sm; i++) {
+                // Slots are objects tracking occupancy and glow state
+                sms.push({ 
+                    id: i, 
+                    x: layout.gpu.x + smPadX + i * (smW + smGap), 
+                    y: layout.gpu.y + smPadY, 
+                    w: smW, 
+                    h: smH, 
+                    slots: new Array(maxPerSm).fill(null).map(() => ({ blockId: null, finishTime: -1 })) 
+                });
+            }
+            
+            blocks = [];
+            for (let i = 0; i < p.blocks; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const ox = layout.prog.x + gridPad + col * (originBlockW + gap);
+                const oy = layout.prog.y + 35 + row * (originBlockH + gap);
+                const duration = schedulingMode === 'sync' ? BASE_EXEC_DURATION : BASE_EXEC_DURATION * (0.5 + Math.random());
+                blocks.push({
+                    id: i, state: 'WAITING',
+                    originRect: { x: ox, y: oy, w: originBlockW, h: originBlockH },
+                    currentRect: { x: ox, y: oy, w: originBlockW, h: originBlockH },
+                    targetRect: null, assignedSm: -1, assignedSlot: -1, startTime: -1, execDuration: duration
+                });
+            }
+        }
+
+        function updatePlayPauseBtn() {
+            document.getElementById('icon-play').classList.toggle('hidden', isPlaying);
+            document.getElementById('icon-pause').classList.toggle('hidden', !isPlaying);
+            document.getElementById('text-play-pause').innerText = isPlaying ? "Pause" : "Play";
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            if (isPlaying && blocks.every(b => b.state === 'DONE')) resetSim();
+            updatePlayPauseBtn();
+            wakeUpLoop();
+        }
+
+        function resetSim() {
+            calculateLayout();
+            simTime = 0;
+            isPlaying = false;
+            updatePlayPauseBtn();
+            updateExplanation();
+            drawScene();
+        }
+
+        function stepToNextEvent() {
+            isPlaying = false;
+            updatePlayPauseBtn();
+            
+            // Collect all upcoming events
+            let events = [];
+            blocks.forEach(b => {
+                if (b.state === 'EXECUTING' || b.state === 'TRANSITING') {
+                    events.push(b.startTime + TRANSIT_DURATION + b.execDuration);
+                }
+            });
+            sms.forEach(sm => {
+                sm.slots.forEach(s => {
+                    if (s.finishTime > 0) events.push(s.finishTime + GLOW_DURATION);
+                });
+            });
+            
+            const upcoming = events.filter(t => t > simTime + 1).sort((a,b) => a - b);
+            
+            let nextMilestone;
+            if (upcoming.length === 0) {
+                nextMilestone = simTime + 500; 
+            } else {
+                nextMilestone = upcoming[0];
+            }
+
+            simTime = nextMilestone;
+            updateSimLogic(0);
+
+            // Snap newly started transits
+            blocks.forEach(b => {
+                if (b.state === 'TRANSITING') {
+                    b.state = 'EXECUTING';
+                    b.startTime = simTime - TRANSIT_DURATION;
+                }
+            });
+
+            drawScene();
+        }
+
+        function wakeUpLoop() {
+            if (!animationFrameId && isPlaying) {
+                lastRealTime = performance.now();
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function updateSimLogic(delta) {
+            simTime += delta;
+
+            // 1. Check for finished blocks
+            blocks.forEach(b => {
+                if (b.state === 'EXECUTING') {
+                    const doneTime = b.startTime + TRANSIT_DURATION + b.execDuration;
+                    if (simTime >= doneTime) {
+                        b.state = 'DONE';
+                        const slot = sms[b.assignedSm].slots[b.assignedSlot];
+                        slot.blockId = null;
+                        slot.finishTime = simTime;
+                    }
+                }
+            });
+
+            // 2. Schedule logic
+            let canSchedule = false;
+            if (schedulingMode === 'async') {
+                canSchedule = true; 
+            } else {
+                const isActive = blocks.some(b => b.state === 'TRANSITING' || b.state === 'EXECUTING');
+                const isGlowing = sms.some(sm => sm.slots.some(s => simTime < s.finishTime + GLOW_DURATION));
+                if (!isActive && !isGlowing) canSchedule = true;
+            }
+
+            if (canSchedule) {
+                sms.forEach(sm => {
+                    for (let s = 0; s < sm.slots.length; s++) {
+                        const slot = sm.slots[s];
+                        // Slot is available if empty AND the glow has finished
+                        if (slot.blockId === null && simTime >= slot.finishTime + GLOW_DURATION) {
+                            const nextBlock = blocks.find(b => b.state === 'WAITING');
+                            if (nextBlock) {
+                                nextBlock.state = 'TRANSITING';
+                                nextBlock.startTime = simTime;
+                                nextBlock.assignedSm = sm.id;
+                                nextBlock.assignedSlot = s;
+                                slot.blockId = nextBlock.id;
+                                const tx = sm.x + layout.smBlockGeo.pad;
+                                const ty = sm.y + layout.smBlockGeo.pad + s * (layout.smBlockGeo.h + layout.smBlockGeo.gap);
+                                nextBlock.targetRect = { x: tx, y: ty, w: layout.smBlockGeo.w, h: layout.smBlockGeo.h };
+                            }
+                        }
+                    }
+                });
+            }
+
+            // 3. Update positions
+            blocks.forEach(b => {
+                if (b.state === 'TRANSITING') {
+                    const elapsed = simTime - b.startTime;
+                    if (elapsed >= TRANSIT_DURATION) b.state = 'EXECUTING';
+                    else {
+                        const t = easeInOutCubic(elapsed / TRANSIT_DURATION);
+                        b.currentRect = {
+                            x: b.originRect.x + (b.targetRect.x - b.originRect.x) * t,
+                            y: b.originRect.y + (b.targetRect.y - b.originRect.y) * t,
+                            w: b.originRect.w + (b.targetRect.w - b.originRect.w) * t,
+                            h: b.originRect.h + (b.targetRect.h - b.originRect.h) * t
+                        };
+                    }
+                }
+                if (b.state === 'EXECUTING') b.currentRect = { ...b.targetRect };
+            });
+        }
+
+        function gameLoop(timestamp) {
+            if (!isPlaying) {
+                animationFrameId = null;
+                return;
+            }
+            const dt = timestamp - lastRealTime;
+            lastRealTime = timestamp;
+            updateSimLogic(dt);
+            updateProgressDisplay();
+            drawScene();
+            if (blocks.every(b => b.state === 'DONE') && !sms.some(sm => sm.slots.some(s => simTime < s.finishTime + GLOW_DURATION))) { 
+                isPlaying = false; 
+                updatePlayPauseBtn(); 
+                animationFrameId = null;
+            } else {
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function drawRoundedRect(x, y, w, h, radius, fill, stroke, lineWidth = 1) {
+            ctx.beginPath();
+            radius = Math.min(radius, w/2, h/2);
+            ctx.roundRect(x, y, w, h, radius);
+            if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+            if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineWidth; ctx.stroke(); }
+        }
+
+        function drawThreads(rect, opacity) {
+            if (rect.w < 20 || rect.h < 15) return;
+            ctx.fillStyle = `rgba(0,0,0,${0.12 * opacity})`;
+            const dotSize = Math.max(1, Math.floor(Math.min(rect.w, rect.h) / 12));
+            const cols = 4; const rows = 2;
+            const gridW = cols * dotSize * 2; const gridH = rows * dotSize * 2;
+            const startX = rect.x + (rect.w - gridW) / 2 + dotSize/2;
+            const startY = rect.y + (rect.h - gridH) / 2 + dotSize/2;
+            for(let r=0; r<rows; r++) {
+                for(let c=0; c<cols; c++) {
+                    ctx.beginPath(); ctx.arc(startX + c*dotSize*2, startY + r*dotSize*2, dotSize/2, 0, Math.PI*2); ctx.fill();
+                }
+            }
+        }
+
+        function drawScene() {
+            ctx.clearRect(0, 0, canvas.width/scale, canvas.height/scale);
+            const p = PROFILES[currentProfileIdx];
+            
+            // Program Grid
+            drawRoundedRect(layout.prog.x, layout.prog.y, layout.prog.w, layout.prog.h, 6, COLORS.progBg, COLORS.progBorder, 2);
+            ctx.fillStyle = COLORS.textDark; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('CUDA Program Grid: Workload', layout.prog.x + layout.prog.w/2, layout.prog.y + 18);
+            
+            // GPU Container
+            drawRoundedRect(layout.gpu.x, layout.gpu.y, layout.gpu.w, layout.gpu.h, 8, COLORS.gpuBg, COLORS.gpuBorder, 2);
+            ctx.fillText(`Hardware: ${p.sm} Streaming Multiprocessors`, layout.gpu.x + layout.gpu.w/2, layout.gpu.y + 20);
+            
+            // SMs
+            sms.forEach(sm => { 
+                drawRoundedRect(sm.x, sm.y, sm.w, sm.h, 4, COLORS.smBg, COLORS.smBorder, 1); 
+                
+                // Draw Slot Glows
+                sm.slots.forEach((slot, s) => {
+                    const elapsed = simTime - slot.finishTime;
+                    if (slot.finishTime > 0 && elapsed < GLOW_DURATION) {
+                        const tx = sm.x + layout.smBlockGeo.pad;
+                        const ty = sm.y + layout.smBlockGeo.pad + s * (layout.smBlockGeo.h + layout.smBlockGeo.gap);
+                        
+                        // Pulsing opacity
+                        const alpha = 0.4 * (1 - elapsed / GLOW_DURATION) * (0.8 + 0.2 * Math.sin(simTime / 100));
+                        drawRoundedRect(tx, ty, layout.smBlockGeo.w, layout.smBlockGeo.h, 2, `rgba(34, 197, 94, ${alpha})`, null);
+                    }
+                });
+            });
+            
+            // Wait/Done blocks in grid
+            blocks.forEach(b => {
+                let fill = b.state === 'WAITING' ? COLORS.blockWait : (b.state === 'DONE' ? COLORS.blockDone : 'rgba(253, 224, 71, 0.2)');
+                let stroke = b.state === 'WAITING' ? COLORS.blockWaitBorder : (b.state === 'DONE' ? COLORS.blockDoneBorder : 'rgba(234, 179, 8, 0.4)');
+                drawRoundedRect(b.originRect.x, b.originRect.y, b.originRect.w, b.originRect.h, 2, fill, stroke, 1);
+                if (b.originRect.w >= 30) {
+                    ctx.fillStyle = (b.state === 'WAITING' || b.state === 'DONE') ? COLORS.textDark : 'rgba(0,0,0,0.3)';
+                    ctx.font = `${Math.min(11, b.originRect.h * 0.6)}px sans-serif`;
+                    ctx.fillText(b.id, b.originRect.x + b.originRect.w/2, b.originRect.y + b.originRect.h/2);
+                }
+            });
+            
+            // Active Blocks
+            const active = blocks.filter(b => b.state === 'TRANSITING' || b.state === 'EXECUTING');
+            active.sort((a,b) => a.state === 'TRANSITING' ? -1 : 1).forEach(b => {
+                const r = b.currentRect;
+                if (b.state === 'TRANSITING') { drawRoundedRect(r.x, r.y, r.w, r.h, 2, COLORS.blockTransit, COLORS.blockTransitBorder, 1.5); drawThreads(r, 0.5); }
+                else {
+                    drawRoundedRect(r.x, r.y, r.w, r.h, 2, COLORS.blockExec, COLORS.blockExecBorder, 1.5);
+                    const progress = Math.min(1, (simTime - (b.startTime + TRANSIT_DURATION)) / b.execDuration);
+                    if (progress > 0) {
+                        ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w * progress, r.h, 2); ctx.fillStyle = COLORS.blockExecFill; ctx.fill();
+                        drawRoundedRect(r.x, r.y, r.w, r.h, 2, null, COLORS.blockExecBorder, 1.5);
+                    }
+                    drawThreads(r, 1.0);
+                }
+                if (r.w >= 30) { ctx.fillStyle = COLORS.textDark; ctx.font = `bold ${Math.min(12, r.h * 0.6)}px sans-serif`; ctx.fillText(b.id, r.x + r.w/2, r.y + r.h/2); }
+            });
+        }
+
+        window.onload = () => { updateExplanation(); calculateLayout(); drawScene(); };
+    </script>
+</body>
+</html>

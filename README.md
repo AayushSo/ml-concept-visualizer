@@ -21,9 +21,9 @@ Browse the full catalog of interactive visualizations on the **[live website](ht
 
 ## 📂 Visualization Categories
 
-### 📊 Classical ML & Classification
+### 📊 Classical ML & Clustering
 
-Traditional machine learning algorithms and evaluation metrics
+Traditional machine learning algorithms, evaluation metrics, and clustering methods
 
 - Classification Metrics Explorer (Accuracy, Precision, Recall, F1, ROC, PR curves)
 - Decision Trees, KNN, Logistic Regression, SVM
@@ -35,7 +35,7 @@ Traditional machine learning algorithms and evaluation metrics
 Convolutional neural networks and deep learning building blocks
 
 - Convolution operations and output formulas
-- 3×3 convolution hardware dataflow (neuFlow)
+- neuFlow 3×3 convolution hardware dataflow
 - Pooling strategies (max, average)
 - ResNet architecture and bottleneck blocks
 - 1×1 convolutions and dimensionality reduction
@@ -76,6 +76,8 @@ Deep dive into hardware design for machine learning
 - **CUDA Branch Divergence Hardware Masking:** Active-mask, program-counter, and efficiency tracking
 - **Dynamic Warp Formation:** Comparing baseline SIMT execution against warp regrouping
 - **CUDA Architecture & Execution Flow:** Thread hierarchy, hardware layout, and host/device orchestration
+- **Tensor Cores & Memory Coalescing:** Specialized execution units and memory-transaction behavior
+- **AoS vs. SoA:** How data layout influences memory behavior and vector efficiency
 - **Shared Memory Bank Conflicts:** Strides, broadcasts, multicast, and padding fixes
 - **CUDA Streams:** Overlapping transfers and kernel execution across streams
 
@@ -122,17 +124,17 @@ ml-concept-visualizer/
 ├── cnn-architectures/                  # Deep learning & CNNs
 ├── gemm-optimization/                  # Matrix multiplication optimization
 │   ├── strassen.html
-│   ├── systolic_array.html
+│   ├── systolic-array.html
 │   └── ...
 ├── gpu/                                # GPU, SIMT, and CUDA architecture visualizations
-│   ├── branch-divergence.html
-│   ├── branch-divergence-optimization.html
-│   ├── dynamic-warp-formation.html
+│   ├── flynn-taxonomy.html
+│   ├── memory-banks.html
 │   ├── nvidia/
 │   │   ├── bank-conflicts.html
-│   │   ├── cuda-architecture.html
+│   │   ├── cuda-execution-architecture.html
 │   │   ├── cuda-execution-flow.html
-│   │   ├── cuda-thread-hierarchy.html
+│   │   ├── cuda-hardware-memory-architecture.html
+│   │   ├── cuda-memory-coalescing.html
 │   │   ├── nvidia-multithreading.html
 │   │   └── cuda-snippets/
 │   └── ...
@@ -141,13 +143,16 @@ ml-concept-visualizer/
 │   └── ...
 ├── tpu/                                # AI Accelerators
 │   ├── tpu1.html                       # TPU Block Diagram
+│   ├── tpu-v1-programming-model.html   # TPU Instruction Flow
 │   ├── vliw.html                       # CISC vs RISC vs VLIW
 │   ├── tpu-vector-unit.html
 │   └── ...
 ├── kernel-optimization/                # Kernel-level optimizations
 ├── cache-optimization/                 # Memory hierarchy
 ├── dataflow-loop-nests/               # Hardware dataflow patterns
-└── performance-modeling/              # Performance analysis
+├── scripts/                            # Repo consistency checks
+├── .github/workflows/                  # Automated consistency checks
+└── performance-modeling/               # Performance analysis
 ```
 
 ## 🚀 Quick Start

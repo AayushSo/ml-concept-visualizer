@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CUDA 2D Kernel Memory Mapping</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .code-font { font-family: 'Fira Code', monospace; }
+        canvas { cursor: crosshair; max-width: 100%; height: auto; touch-action: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+        input[type=range] { accent-color: #6366f1; }
+        
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .live-indicator {
+            animation: pulse-soft 2s infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 p-4 md:p-6 flex flex-col items-center">
+
+    <div class="max-w-[1600px] w-full mb-6 text-left">
+        <h1 class="text-3xl font-bold text-slate-900 mb-1">CUDA 2D Kernel Memory Mapping</h1>
+        <p class="text-slate-600">Explore boundary guards, coalesced memory access, and mathematical thread-to-matrix indexing.</p>
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-6 max-w-[1600px] w-full items-start">
+        
+        <!-- Sidebar (Left) -->
+        <aside class="w-full lg:w-[350px] shrink-0 space-y-4">
+            
+            <!-- Configuration -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4">
+                <div class="flex items-center gap-2 mb-2 border-b border-slate-100 pb-2">
+                    <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    <span class="font-bold text-sm text-slate-700 uppercase tracking-tight">Configuration</span>
+                </div>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="flex justify-between text-xs font-bold text-slate-500 mb-1">
+                            MATRIX SIZE (N) <span id="label-n" class="text-indigo-600">8</span>
+                        </label>
+                        <input type="range" id="input-n" min="4" max="20" value="20" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label class="flex justify-between text-xs font-bold text-slate-500 mb-1">
+                            BLOCK SIZE <span id="label-bs" class="text-indigo-600">4</span>
+                        </label>
+                        <input type="range" id="input-bs" min="2" max="6" value="5" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div class="pt-2">
+                        <label class="flex items-center gap-2 cursor-pointer group">
+                            <div class="relative">
+                                <input type="checkbox" id="input-coalesced" checked class="sr-only peer">
+                                <div class="w-10 h-5 bg-slate-300 rounded-full peer peer-checked:bg-indigo-600 transition-colors"></div>
+                                <div class="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+                            </div>
+                            <span class="text-sm font-semibold text-slate-700">Row-Major Storage</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Math Mapping (Code) -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                        <span class="font-bold text-sm text-slate-700">Math Mapping</span>
+                    </div>
+                    <div id="guard-status" class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700">Within Bounds</div>
+                </div>
+                <div class="bg-slate-900 p-4 custom-scrollbar">
+                    <pre class="code-font text-[12px] leading-relaxed text-slate-300">
+<span id="line-i" class="transition-colors duration-200 px-1 rounded"><span class="text-teal-300">int</span> i = blockIdx.y * blockDim.y + threadIdx.y;</span>
+<span id="line-j" class="transition-colors duration-200 px-1 rounded"><span class="text-teal-300">int</span> j = blockIdx.x * blockDim.x + threadIdx.x;</span>
+<span id="line-idx" class="transition-colors duration-200 px-1 rounded"><span class="text-teal-300">int</span> index = <span id="code-math">j + i * N</span>;</span>
+<span id="line-guard" class="transition-colors duration-200 px-1 rounded"><span class="text-purple-400">if</span> (i < N && j < N) { ... }</span></pre>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Visualization (Right) -->
+        <main class="flex-grow bg-white rounded-2xl shadow-xl border border-slate-200 p-6 flex flex-col items-center relative min-h-[850px]">
+            
+            <div class="w-full max-w-[900px] space-y-4 mb-6">
+                <!-- Reorganized Table Header -->
+                <div class="bg-slate-900 rounded-xl overflow-hidden shadow-lg border border-slate-700">
+                    <div class="flex items-center justify-between bg-slate-800 px-4 py-2 border-b border-slate-700">
+                        <div class="flex items-center gap-2">
+                            <div id="status-dot" class="w-2 h-2 rounded-full bg-slate-500"></div>
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live Execution Trace</span>
+                        </div>
+                        <span id="hover-status" class="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Standby</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-center text-[12px] border-collapse min-w-[700px]">
+                            <thead>
+                                <tr class="bg-slate-800/50 text-slate-500 uppercase font-black text-[10px] border-b border-slate-700">
+                                    <th class="px-4 py-2 border-r border-slate-700">blockIdx.x</th>
+                                    <th class="px-4 py-2 border-r border-slate-700">blockIdx.y</th>
+                                    <th class="px-4 py-2 border-r border-slate-700">threadIdx.x</th>
+                                    <th class="px-4 py-2 border-r border-slate-700">threadIdx.y</th>
+                                    <th class="px-4 py-2 border-r border-slate-700 text-indigo-400">i (Row)</th>
+                                    <th class="px-4 py-2 border-r border-slate-700 text-indigo-400">j (Col)</th>
+                                    <th class="px-4 py-2 bg-emerald-900/20 text-emerald-400">1D Address</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-white font-mono text-[16px]">
+                                <tr>
+                                    <td id="t-bx" class="px-4 py-3 border-r border-slate-700 text-orange-400 font-bold">?</td>
+                                    <td id="t-by" class="px-4 py-3 border-r border-slate-700 text-orange-400 font-bold">?</td>
+                                    <td id="t-tx" class="px-4 py-3 border-r border-slate-700 text-red-400 font-bold">?</td>
+                                    <td id="t-ty" class="px-4 py-3 border-r border-slate-700 text-red-400 font-bold">?</td>
+                                    <td id="t-i" class="px-4 py-3 border-r border-slate-700 text-indigo-300">?</td>
+                                    <td id="t-j" class="px-4 py-3 border-r border-slate-700 text-indigo-300">?</td>
+                                    <td id="t-idx" class="px-4 py-3 bg-emerald-500/10 text-emerald-400 font-black text-xl">?</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <canvas id="mappingCanvas" width="950" height="700" class="rounded-xl"></canvas>
+
+            <!-- Bottom Live Value Overlay -->
+            <div id="calcPanelBottom" class="w-full max-w-[870px] mt-4 opacity-0 transition-all duration-300">
+                <div class="p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-lg relative overflow-hidden flex items-center justify-between">
+                    <div class="flex items-center gap-4 z-10">
+                        <div class="bg-emerald-500/20 p-2 rounded-lg border border-emerald-500/30">
+                            <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div>
+                            <div class="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Memory Location Mapping</div>
+                            <div class="text-xs text-emerald-400/80 font-mono" id="math-idx-expanded-bottom">? + (? * ?)</div>
+                        </div>
+                    </div>
+                    <div class="flex items-baseline gap-2 z-10 pr-2">
+                        <span class="text-[10px] text-slate-500 font-black uppercase tracking-tighter">1D Address</span>
+                        <span class="text-4xl font-black text-emerald-400 tracking-tighter" id="calc-idx-bottom">?</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-6 bg-slate-900/80 text-white px-3 py-1.5 rounded-lg text-[11px] font-medium pointer-events-none backdrop-blur-sm">
+                HOVER ANY COMPONENT TO TRACE MEMORY
+            </div>
+        </main>
+    </div>
+
+<script>
+    const canvas = document.getElementById('mappingCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let N = 8, blockDim = 4, gridDim = 2, isRowMajor = true, hoveredThread = null, mousePos = { x: -100, y: -100 }, time = 0;
+
+    const execGrid = { x: 40, y: 80, size: 360 };
+    const memGrid = { x: 500, y: 80, size: 360 };
+    const memStacks = { x: 40, y: 550, w: 870, h: 25, gap: 35 };
+
+    let blockSizePx, threadSizePx, memCellPx, cell1DW;
+
+    // DOM Controls
+    const inputN = document.getElementById('input-n'), inputBS = document.getElementById('input-bs'), inputCoalesced = document.getElementById('input-coalesced');
+    const labelN = document.getElementById('label-n'), labelBS = document.getElementById('label-bs');
+    const calcPanelBottom = document.getElementById('calcPanelBottom');
+    
+    // Table Data Cells
+    const cellBX = document.getElementById('t-bx'), cellBY = document.getElementById('t-by');
+    const cellTX = document.getElementById('t-tx'), cellTY = document.getElementById('t-ty');
+    const cellI = document.getElementById('t-i'), cellJ = document.getElementById('t-j'), cellIdx = document.getElementById('t-idx');
+
+    // Bottom Overlay Math
+    const elIdxBottom = document.getElementById('calc-idx-bottom');
+    const mathIdxExpandedBottom = document.getElementById('math-idx-expanded-bottom');
+
+    const codeMath = document.getElementById('code-math'), guardStatus = document.getElementById('guard-status');
+    const statusDot = document.getElementById('status-dot'), hoverStatus = document.getElementById('hover-status');
+
+    function updateParams() {
+        N = parseInt(inputN.value); blockDim = parseInt(inputBS.value); isRowMajor = inputCoalesced.checked; gridDim = Math.ceil(N / blockDim);
+        blockSizePx = execGrid.size / gridDim; threadSizePx = blockSizePx / blockDim; memCellPx = memGrid.size / N; cell1DW = memStacks.w / (N * N);
+        labelN.textContent = N; labelBS.textContent = blockDim;
+        codeMath.textContent = isRowMajor ? "j + i * N" : "i + j * N";
+    }
+
+    [inputN, inputBS, inputCoalesced].forEach(i => i.addEventListener('input', updateParams));
+    updateParams();
+
+    function drawText(ctx, text, x, y, font, color, align="center") {
+        ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align;
+        ctx.textBaseline = "middle"; ctx.fillText(text, x, y);
+    }
+
+    function drawBlockPerimeter(x, y, w, h, color, shadowColor, lineWidth, inset = 0) {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.shadowColor = shadowColor;
+        ctx.shadowBlur = 18;
+        ctx.strokeRect(x + inset, y + inset, w - inset * 2, h - inset * 2);
+        ctx.restore();
+    }
+
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        time++;
+        const hoveredBlock = hoveredThread ? { bx: hoveredThread.bx, by: hoveredThread.by } : null;
+
+        drawText(ctx, "Thread Execution Grid", execGrid.x + execGrid.size/2, execGrid.y - 30, "600 16px Inter", "#475569");
+        drawText(ctx, `Logical Matrix (i=Row, j=Col)`, memGrid.x + memGrid.size/2, memGrid.y - 30, "600 16px Inter", "#475569");
+        drawText(ctx, "A + B = C (Physical Arrays)", memStacks.x + memStacks.w/2, memStacks.y - 30, "600 16px Inter", "#475569");
+
+        // Execution Grid
+        for (let by = 0; by < gridDim; by++) {
+            for (let bx = 0; bx < gridDim; bx++) {
+                const bX = execGrid.x + bx * blockSizePx, bY = execGrid.y + by * blockSizePx;
+                const isBlockHovered = hoveredBlock && hoveredBlock.bx === bx && hoveredBlock.by === by;
+                const isPriorAlignedBlock = hoveredBlock && !isBlockHovered && (
+                    (hoveredBlock.by === by && bx < hoveredBlock.bx) ||
+                    (hoveredBlock.bx === bx && by < hoveredBlock.by)
+                );
+
+                if (isBlockHovered) {
+                    drawBlockPerimeter(bX - 3, bY - 3, blockSizePx + 6, blockSizePx + 6, "rgba(217, 119, 6, 0.95)", "rgba(245, 158, 11, 0.6)", 3);
+                } else if (isPriorAlignedBlock) {
+                    drawBlockPerimeter(bX - 2, bY - 2, blockSizePx + 4, blockSizePx + 4, "rgba(20, 184, 166, 0.95)", "rgba(45, 212, 191, 0.4)", 2);
+                }
+
+                for (let ty = 0; ty < blockDim; ty++) {
+                    for (let tx = 0; tx < blockDim; tx++) {
+                        const j = bx * blockDim + tx, i = by * blockDim + ty, isGhost = i >= N || j >= N;
+                        const isHovered = hoveredThread && hoveredThread.bx === bx && hoveredThread.by === by && hoveredThread.tx === tx && hoveredThread.ty === ty;
+                        const isPriorAlignedThread = hoveredThread && !hoveredThread.isGhost && !isGhost && !isHovered && (
+                            (hoveredThread.i === i && j < hoveredThread.j) ||
+                            (hoveredThread.j === j && i < hoveredThread.i)
+                        );
+                        const isPriorThreadInBlock = hoveredThread && !hoveredThread.isGhost && !isGhost && !isHovered &&
+                            hoveredThread.bx === bx && hoveredThread.by === by && (
+                                (hoveredThread.ty === ty && tx < hoveredThread.tx) ||
+                                (hoveredThread.tx === tx && ty < hoveredThread.ty)
+                            );
+                        const tX = bX + tx * threadSizePx, tY = bY + ty * threadSizePx, pad = 2;
+                        ctx.fillStyle = isGhost ? (isHovered ? "#94a3b8" : "#f1f5f9") : (isHovered ? "#ef4444" : "#cbd5e1");
+                        ctx.strokeStyle = isHovered ? "#991b1b" : "#94a3b8"; ctx.lineWidth = isHovered ? 2 : 0.5;
+                        ctx.fillRect(tX + pad, tY + pad, threadSizePx - pad*2, threadSizePx - pad*2);
+                        ctx.strokeRect(tX + pad, tY + pad, threadSizePx - pad*2, threadSizePx - pad*2);
+                        if (isPriorAlignedThread) {
+                            drawBlockPerimeter(tX + pad, tY + pad, threadSizePx - pad*2, threadSizePx - pad*2, "rgba(15, 118, 110, 0.92)", "rgba(45, 212, 191, 0.24)", 1.5, 1);
+                        }
+                        if (isPriorThreadInBlock) {
+                            drawBlockPerimeter(tX + pad, tY + pad, threadSizePx - pad*2, threadSizePx - pad*2, "rgba(234, 88, 12, 0.92)", "rgba(251, 146, 60, 0.3)", 1.5, 2.5);
+                        }
+                    }
+                }
+                ctx.strokeStyle = isBlockHovered ? "#d97706" : isPriorAlignedBlock ? "#14b8a6" : "#f59e0b";
+                ctx.lineWidth = isBlockHovered ? 3 : isPriorAlignedBlock ? 2 : 1.5;
+                ctx.strokeRect(bX, bY, blockSizePx, blockSizePx);
+            }
+        }
+
+        // Logical Matrix
+        for (let r = 0; r < N; r++) {
+            for (let c = 0; c < N; c++) {
+                const cx = memGrid.x + c * memCellPx, cy = memGrid.y + r * memCellPx;
+                const isHovered = hoveredThread && hoveredThread.i === r && hoveredThread.j === c;
+                ctx.fillStyle = isHovered ? "#3b82f6" : "#f8fafc"; ctx.strokeStyle = isHovered ? "#1e3a8a" : "#cbd5e1";
+                ctx.lineWidth = isHovered ? 2 : 0.5; ctx.fillRect(cx, cy, memCellPx, memCellPx); ctx.strokeRect(cx, cy, memCellPx, memCellPx);
+            }
+        }
+        if (hoveredThread && !hoveredThread.isGhost) {
+            for (let r = 0; r < N; r++) {
+                for (let c = 0; c < N; c++) {
+                    const isHovered = hoveredThread.i === r && hoveredThread.j === c;
+                    const isPriorAlignedCell = !isHovered && (
+                        (hoveredThread.i === r && c < hoveredThread.j) ||
+                        (hoveredThread.j === c && r < hoveredThread.i)
+                    );
+                    const isPriorCellInBlock = !isHovered &&
+                        Math.floor(c / blockDim) === hoveredThread.bx &&
+                        Math.floor(r / blockDim) === hoveredThread.by && (
+                            (r === hoveredThread.i && c < hoveredThread.j) ||
+                            (c === hoveredThread.j && r < hoveredThread.i)
+                        );
+                    if (!isPriorAlignedCell) continue;
+
+                    const cx = memGrid.x + c * memCellPx, cy = memGrid.y + r * memCellPx;
+                    drawBlockPerimeter(cx, cy, memCellPx, memCellPx, "rgba(15, 118, 110, 0.92)", "rgba(45, 212, 191, 0.24)", 1.5, 1);
+                    if (isPriorCellInBlock) {
+                        drawBlockPerimeter(cx, cy, memCellPx, memCellPx, "rgba(234, 88, 12, 0.92)", "rgba(251, 146, 60, 0.3)", 1.5, 2.5);
+                    }
+                }
+            }
+        }
+        if (hoveredBlock) {
+            for (let by = 0; by < gridDim; by++) {
+                for (let bx = 0; bx < gridDim; bx++) {
+                    const blockCols = Math.min(blockDim, N - bx * blockDim);
+                    const blockRows = Math.min(blockDim, N - by * blockDim);
+                    if (blockCols <= 0 || blockRows <= 0) continue;
+
+                    const isBlockHovered = hoveredBlock.bx === bx && hoveredBlock.by === by;
+                    const isPriorAlignedBlock = !isBlockHovered && (
+                        (hoveredBlock.by === by && bx < hoveredBlock.bx) ||
+                        (hoveredBlock.bx === bx && by < hoveredBlock.by)
+                    );
+                    if (!isBlockHovered && !isPriorAlignedBlock) continue;
+
+                    const highlightX = memGrid.x + bx * blockDim * memCellPx;
+                    const highlightY = memGrid.y + by * blockDim * memCellPx;
+                    if (isBlockHovered) {
+                        drawBlockPerimeter(highlightX, highlightY, blockCols * memCellPx, blockRows * memCellPx, "rgba(37, 99, 235, 0.98)", "rgba(59, 130, 246, 0.45)", 3, 1.5);
+                    } else {
+                        drawBlockPerimeter(highlightX, highlightY, blockCols * memCellPx, blockRows * memCellPx, "rgba(13, 148, 136, 0.95)", "rgba(45, 212, 191, 0.28)", 2, 1);
+                    }
+                }
+            }
+        }
+        ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 2; ctx.strokeRect(memGrid.x, memGrid.y, memGrid.size, memGrid.size);
+
+        // Physical Memory Stacks
+        const colors = ["#818cf8", "#f472b6", "#10b981"];
+        for (let s = 0; s < 3; s++) {
+            const sy = memStacks.y + s * memStacks.gap;
+            for (let idx = 0; idx < N * N; idx++) {
+                const rx = memStacks.x + idx * cell1DW, isHovered = hoveredThread && !hoveredThread.isGhost && hoveredThread.index === idx;
+                ctx.fillStyle = isHovered ? colors[s] : "#f1f5f9"; ctx.strokeStyle = isHovered ? "#000" : "#cbd5e1";
+                ctx.lineWidth = isHovered ? 2 : 0.5; ctx.fillRect(rx, sy, cell1DW, memStacks.h); ctx.strokeRect(rx, sy, cell1DW, memStacks.h);
+            }
+        }
+
+        if (hoveredThread && !hoveredThread.isGhost) {
+            const { bx, by, tx, ty, i, j, index } = hoveredThread;
+            const tCX = execGrid.x + bx * blockSizePx + tx * threadSizePx + threadSizePx/2;
+            const tCY = execGrid.y + by * blockSizePx + ty * threadSizePx + threadSizePx/2;
+            const mCX = memGrid.x + j * memCellPx + memCellPx/2;
+            const mCY = memGrid.y + i * memCellPx + memCellPx/2;
+            const rCX = memStacks.x + index * cell1DW + cell1DW/2;
+
+            ctx.setLineDash([5, 3]); ctx.lineWidth = 2; ctx.beginPath(); ctx.strokeStyle = "rgba(59, 130, 246, 0.4)";
+            ctx.moveTo(tCX, tCY); ctx.bezierCurveTo(tCX + 150, tCY, mCX - 150, mCY, mCX, mCY); ctx.stroke();
+
+            [0, 1, 2].forEach(s => {
+                ctx.beginPath(); ctx.strokeStyle = colors[s] + "66";
+                const sy = memStacks.y + s * memStacks.gap;
+                if (s < 2) { ctx.moveTo(rCX, sy); ctx.bezierCurveTo(rCX, sy - 50, mCX, mCY + 100, mCX, mCY); }
+                else { ctx.moveTo(mCX, mCY); ctx.bezierCurveTo(mCX, mCY + 150, rCX, sy - 100, rCX, sy); }
+                ctx.stroke();
+            });
+        }
+        requestAnimationFrame(render);
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+        mousePos.x = (e.clientX - rect.left) * scaleX; mousePos.y = (e.clientY - rect.top) * scaleY;
+        let found = null;
+
+        if (mousePos.x >= execGrid.x && mousePos.x <= execGrid.x + execGrid.size && mousePos.y >= execGrid.y && mousePos.y <= execGrid.y + execGrid.size) {
+            const lx = mousePos.x - execGrid.x, ly = mousePos.y - execGrid.y;
+            const bx = Math.floor(lx / blockSizePx), by = Math.floor(ly / blockSizePx);
+            const tx = Math.floor((lx % blockSizePx) / threadSizePx), ty = Math.floor((ly % blockSizePx) / threadSizePx);
+            const j = bx * blockDim + tx, i = by * blockDim + ty;
+            const isGhost = i >= N || j >= N;
+            const index = isRowMajor ? (j + i * N) : (i + j * N);
+            found = { bx, by, tx, ty, i, j, isGhost, index };
+        } else if (mousePos.x >= memGrid.x && mousePos.x <= memGrid.x + memGrid.size && mousePos.y >= memGrid.y && mousePos.y <= memGrid.y + memGrid.size) {
+            const j = Math.floor((mousePos.x - memGrid.x) / memCellPx), i = Math.floor((mousePos.y - memGrid.y) / memCellPx);
+            if (i >= 0 && i < N && j >= 0 && j < N) {
+                found = { bx: Math.floor(j / blockDim), tx: j % blockDim, by: Math.floor(i / blockDim), ty: i % blockDim, i, j, index: isRowMajor ? (j + i * N) : (i + j * N), isGhost: false };
+            }
+        } else if (mousePos.x >= memStacks.x && mousePos.x <= memStacks.x + memStacks.w && mousePos.y >= memStacks.y && mousePos.y <= memStacks.y + 3 * memStacks.gap + memStacks.h) {
+            const index = Math.floor((mousePos.x - memStacks.x) / cell1DW);
+            if (index >= 0 && index < N*N) {
+                let i, j; if (isRowMajor) { i = Math.floor(index / N); j = index % N; } else { j = Math.floor(index / N); i = index % N; }
+                found = { bx: Math.floor(j / blockDim), tx: j % blockDim, by: Math.floor(i / blockDim), ty: i % blockDim, i, j, index, isGhost: false };
+            }
+        }
+        if (JSON.stringify(found) !== JSON.stringify(hoveredThread)) { hoveredThread = found; updateUI(found); }
+    });
+
+    function updateUI(t) {
+        if (!t) { 
+            calcPanelBottom.classList.add('opacity-0');
+            statusDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+            guardStatus.style.display = "none"; 
+            cellBX.textContent = cellBY.textContent = cellTX.textContent = cellTY.textContent = cellI.textContent = cellJ.textContent = cellIdx.textContent = "?";
+            hoverStatus.textContent = "Standby";
+            hoverStatus.className = "text-[10px] font-bold uppercase text-slate-500";
+            return; 
+        }
+        calcPanelBottom.classList.remove('opacity-0');
+        statusDot.className = `w-2 h-2 rounded-full ${t.isGhost ? 'bg-amber-500' : 'bg-emerald-500'} live-indicator`;
+        guardStatus.style.display = "block";
+        
+        // Horizontal Table Values
+        cellBX.textContent = t.bx; cellBY.textContent = t.by;
+        cellTX.textContent = t.tx; cellTY.textContent = t.ty;
+        cellI.textContent = t.i; cellJ.textContent = t.j;
+        cellIdx.textContent = t.isGhost ? "∅" : t.index;
+
+        // Bottom Overlay Math
+        const expandedMath = isRowMajor ? `${t.j} + (${t.i} * ${N})` : `${t.i} + (${t.j} * ${N})`;
+        mathIdxExpandedBottom.innerHTML = expandedMath;
+        elIdxBottom.textContent = t.isGhost ? "∅" : t.index;
+
+        if (t.isGhost) {
+            guardStatus.textContent = "IDLE"; guardStatus.className = "text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-500";
+            hoverStatus.textContent = "IDLE (GHOST)";
+            hoverStatus.className = "text-[10px] font-bold uppercase text-amber-500";
+        } else {
+            guardStatus.textContent = "ACTIVE"; guardStatus.className = "text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700";
+            hoverStatus.textContent = "Executing";
+            hoverStatus.className = "text-[10px] font-bold uppercase text-emerald-600";
+        }
+    }
+    render();
+</script>
+</body>
+</html>

@@ -19,14 +19,21 @@
         }
 
         .viz-link {
-            transition: all 0.2s ease;
-            border-left: 3px solid transparent;
+            display: block;
+            height: 100%;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            background: white;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            padding: 0 !important;
         }
 
         .viz-link:hover {
-            background: #f0f9ff;
-            border-left-color: #3b82f6;
-            padding-left: 1rem;
+            transform: translateY(-3px);
+            box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
+            border-color: #93c5fd;
+            background: white;
         }
 
         .hero-gradient {
@@ -39,6 +46,108 @@
             border-radius: 9999px;
             font-size: 0.75rem;
             font-weight: 600;
+        }
+
+        .category-card ul {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1rem;
+        }
+
+        .category-card ul>li {
+            margin: 0 !important;
+        }
+
+        .viz-link-card {
+            display: grid;
+            grid-template-columns: minmax(132px, 164px) minmax(0, 1fr);
+            min-height: 122px;
+            height: 100%;
+        }
+
+        .viz-preview {
+            position: relative;
+            min-height: 122px;
+            background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+            isolation: isolate;
+        }
+
+        .viz-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .viz-preview::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.22)),
+                linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 58%);
+            pointer-events: none;
+        }
+
+        .viz-preview-meta {
+            position: absolute;
+            left: 0.75rem;
+            right: 0.75rem;
+            bottom: 0.7rem;
+            z-index: 1;
+            color: white;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-shadow: 0 1px 2px rgba(15, 23, 42, 0.4);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .viz-content {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.4rem;
+            padding: 1rem 1rem 0.95rem 1.1rem;
+        }
+
+        .viz-title {
+            line-height: 1.25;
+        }
+
+        .viz-description {
+            color: #475569 !important;
+            line-height: 1.45;
+        }
+
+        .viz-path {
+            display: inline-flex;
+            align-self: flex-start;
+            margin-top: 0.15rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            background: #eff6ff;
+            color: #475569;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        }
+
+        @media (max-width: 640px) {
+            .viz-link-card {
+                grid-template-columns: 1fr;
+            }
+
+            .viz-preview {
+                min-height: 96px;
+            }
+
+            .viz-content {
+                padding: 0.95rem;
+            }
         }
     </style>
 </head>
@@ -73,7 +182,7 @@
                 <ul class="space-y-3">
                     <li>
                         <a href="tpu/vliw.html" class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-purple-600">CISC vs RISC vs VLIW</span>
+                            <span class="font-semibold text-purple-600">Instruction Set Architectures</span>
                             <span class="text-gray-600 text-sm block mt-1">Comparing CPU instruction architectures and parallelism philosophies</span>
                         </a>
                     </li>
@@ -90,9 +199,27 @@
                         </a>
                     </li>
                     <li>
-                        <a href="gemm-optimization/systolic_array.html" class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-purple-600">Systolic Array Core</span>
+                        <a href="gemm-optimization/systolic-array.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Systolic Array Visualization</span>
                             <span class="text-gray-600 text-sm block mt-1">Visualize how data flows through a rhythmic matrix multiply unit</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/flynn-taxonomy.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Flynn's Taxonomy</span>
+                            <span class="text-gray-600 text-sm block mt-1">Interactive guide to SISD, SIMD, MISD, and MIMD machine models</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/scalar-vs-pipeline-cpu.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">MIPS Pipeline Explorer</span>
+                            <span class="text-gray-600 text-sm block mt-1">Step through pipelined CPU execution and compare stage overlap</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/scalar-array-vector-processor.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Array vs. Vector vs. MIPS Pipeline</span>
+                            <span class="text-gray-600 text-sm block mt-1">Compare scalar, array, and vector execution models in one architecture view</span>
                         </a>
                     </li>
                     <li>
@@ -102,33 +229,69 @@
                         </a>
                     </li>
                     <li>
+                        <a href="gpu/scalar-simd-registers.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Scalar vs. SIMD Step-Through</span>
+                            <span class="text-gray-600 text-sm block mt-1">Follow how scalar and SIMD instructions use registers and lanes over time</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/functional-unit-parallelism.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Vector Instruction Execution</span>
+                            <span class="text-gray-600 text-sm block mt-1">See how vector operations fan out across multiple hardware units</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/gpu-fgmt.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">GPU Multi-Core Scheduling</span>
+                            <span class="text-gray-600 text-sm block mt-1">Visualize fine-grained multithreading across GPU cores and warp issue slots</span>
+                        </a>
+                    </li>
+                    <li>
                         <a href="gpu/vector-ilp.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">Vector ILP & Pipeline Throughput</span>
                             <span class="text-gray-600 text-sm block mt-1">Visualizing accumulation of vector chunks and instruction-level parallelism</span>
                         </a>
                     </li>
                     <li>
-                        <a href="gpu/warp-basics.html" class="viz-link block p-3 rounded-lg">
+                        <a href="gpu/nvidia/warp-basics.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">GPU Warp Basics (SIMT)</span>
                             <span class="text-gray-600 text-sm block mt-1">How SPMD code maps to a warp of hardware threads sharing a Program Counter</span>
                         </a>
                     </li>
                     <li>
-                        <a href="gpu/branch-divergence.html" class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-purple-600">Branch Divergence Profiler</span>
+                        <a href="gpu/nvidia/branch-divergence.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">GPU Branch Divergence</span>
                             <span class="text-gray-600 text-sm block mt-1">Simulator to measure throughput and utilization losses in divergent kernels</span>
                         </a>
                     </li>
                     <li>
-                        <a href="gpu/branch-divergence-optimization.html" class="viz-link block p-3 rounded-lg">
+                        <a href="gpu/nvidia/branch-divergence-optimization.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">CUDA Branch Divergence Hardware Masking</span>
                             <span class="text-gray-600 text-sm block mt-1">Track active masks, program counters, and SIMT efficiency during divergence</span>
                         </a>
                     </li>
                     <li>
-                        <a href="gpu/dynamic-warp-formation.html" class="viz-link block p-3 rounded-lg">
+                        <a href="gpu/nvidia/dynamic-warp-formation.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">Dynamic Warp Formation</span>
                             <span class="text-gray-600 text-sm block mt-1">Compare baseline SIMT scheduling with post-divergence warp regrouping</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/nvidia/simt-scheduling.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Warp-Level Scheduling (FGMT)</span>
+                            <span class="text-gray-600 text-sm block mt-1">Explore warp issue order, latency hiding, and fine-grained multithreading</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/nvidia/simultaneous-multithreading.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">Simultaneous Multithreading (SMT)</span>
+                            <span class="text-gray-600 text-sm block mt-1">Compare SMT pipeline sharing against warp-style multithreading</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/nvidia/hardware-abstraction.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">GPU Scheduling Strategies</span>
+                            <span class="text-gray-600 text-sm block mt-1">Contrast scheduling abstractions and the hardware tradeoffs behind them</span>
                         </a>
                     </li>
                     <li>
@@ -138,13 +301,13 @@
                         </a>
                     </li>
                     <li>
-                        <a href="gpu/nvidia/cuda-architecture.html" class="viz-link block p-3 rounded-lg">
+                        <a href="gpu/nvidia/cuda-execution-architecture.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">CUDA Execution Architecture</span>
                             <span class="text-gray-600 text-sm block mt-1">Explore the logical grid, block, thread, and shared-memory hierarchy</span>
                         </a>
                     </li>
                     <li>
-                        <a href="gpu/nvidia/cuda-thread-hierarchy.html" class="viz-link block p-3 rounded-lg">
+                        <a href="gpu/nvidia/cuda-hardware-memory-architecture.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">CUDA Hardware & Memory Architecture</span>
                             <span class="text-gray-600 text-sm block mt-1">Connect the CUDA programming model to SMs, registers, caches, and device memory</span>
                         </a>
@@ -162,14 +325,38 @@
                         </a>
                     </li>
                     <li>
+                        <a href="gpu/nvidia/cuda-memory-coalescing.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">CUDA Memory Coalescing</span>
+                            <span class="text-gray-600 text-sm block mt-1">Simulate how thread access patterns collapse into memory transactions</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/nvidia/cuda-2d-kernel-memory-mapping.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">CUDA 2D Kernel Memory Mapping</span>
+                            <span class="text-gray-600 text-sm block mt-1">Map 2D thread indices onto matrix coordinates, guards, and memory order</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/nvidia/aos-vs-soa.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">AoS vs. SoA</span>
+                            <span class="text-gray-600 text-sm block mt-1">Compare memory layouts and their impact on access locality and vectorization</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="gpu/nvidia/tensor-cores.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">NVIDIA Tensor Cores</span>
+                            <span class="text-gray-600 text-sm block mt-1">Understand mixed-precision matrix math on dedicated tensor units</span>
+                        </a>
+                    </li>
+                    <li>
                         <a href="gpu/nvidia/cuda-snippets/cuda-streams.html" class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-purple-600">CUDA Streams Visualizer</span>
                             <span class="text-gray-600 text-sm block mt-1">See how asynchronous transfers and kernels overlap across multiple streams</span>
                         </a>
                     </li>
                     <li>
-                        <a href="tpu/tpu1_instructions.html" class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-purple-600">TPU Programming Model</span>
+                        <a href="tpu/tpu-v1-programming-model.html" class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-purple-600">TPU v1 Programming Model</span>
                             <span class="text-gray-600 text-sm block mt-1">Visualization of the CISC-like instruction set used to program AI accelerators</span>
                         </a>
                     </li>
@@ -189,7 +376,7 @@
             </div>
         </section>
 
-        <!-- Classical ML & Classification -->
+        <!-- Classical ML & Clustering -->
         <section class="mb-12">
             <div class="category-card bg-white rounded-xl shadow-md p-8">
                 <div class="flex items-center gap-3 mb-6">
@@ -197,8 +384,8 @@
                         📊
                     </div>
                     <div>
-                        <h2 class="text-2xl font-bold text-gray-900">Classical ML & Classification</h2>
-                        <p class="text-gray-600 text-sm">Traditional machine learning algorithms and metrics</p>
+                        <h2 class="text-2xl font-bold text-gray-900">Classical ML & Clustering</h2>
+                        <p class="text-gray-600 text-sm">Traditional machine learning algorithms, metrics, and clustering methods</p>
                     </div>
                 </div>
                 <ul class="space-y-3">
@@ -304,9 +491,9 @@
                         </a>
                     </li>
                     <li>
-                        <a href="cnn-architectures/neuFlow.html"
+                        <a href="cnn-architectures/neuflow-convolution-engine.html"
                             class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-purple-600">3×3 2D Convolution Engine (neuFlow)</span>
+                            <span class="font-semibold text-purple-600">neuFlow 3×3 Convolution Engine</span>
                             <span class="text-gray-600 text-sm block mt-1">Visualize PE broadcast, delay elements (W−K), and output map generation</span>
                         </a>
                     </li>
@@ -379,8 +566,8 @@
                     <li>
                         <a href="fundamentals/internal-covariate-shift-batchnorm.html"
                             class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-green-600">BatchNorm in Action</span>
-                            <span class="text-gray-600 text-sm block mt-1">Batch normalization visualized</span>
+                            <span class="font-semibold text-green-600">Internal Covariate Shift & BatchNorm</span>
+                            <span class="text-gray-600 text-sm block mt-1">See how normalization smooths the optimization landscape</span>
                         </a>
                     </li>
                     <li>
@@ -417,7 +604,7 @@
                     <li>
                         <a href="gemm-optimization/gemm-nested-loops-baseline.html"
                             class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-orange-600">GEMM Nested Loops Baseline</span>
+                            <span class="font-semibold text-orange-600">Matrix Multiplication Loop Ordering</span>
                             <span class="text-gray-600 text-sm block mt-1">Basic matrix multiplication implementation</span>
                         </a>
                     </li>
@@ -438,7 +625,7 @@
                     <li>
                         <a href="gemm-optimization/img2col.html"
                             class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-orange-600">img2col Transformation</span>
+                            <span class="font-semibold text-orange-600">Image to Column (im2col)</span>
                             <span class="text-gray-600 text-sm block mt-1">Converting convolutions to GEMM for high-performance execution</span>
                         </a>
                     </li>
@@ -452,7 +639,7 @@
                     <li>
                         <a href="gemm-optimization/non-tiled-cache-miss-derivation.html"
                             class="viz-link block p-3 rounded-lg">
-                            <span class="font-semibold text-orange-600">Non-Tiled Cache Miss Analysis</span>
+                            <span class="font-semibold text-orange-600">Matrix Multiplication: Non-Tiled Misses</span>
                             <span class="text-gray-600 text-sm block mt-1">Mathematical derivation of cache misses</span>
                         </a>
                     </li>
@@ -525,6 +712,13 @@
                             <span class="text-gray-600 text-sm block mt-1">Understanding the memory hierarchy</span>
                         </a>
                     </li>
+                    <li>
+                        <a href="gpu/memory-banks.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-indigo-600">Memory Banks Lab</span>
+                            <span class="text-gray-600 text-sm block mt-1">Compare single-bank and multi-bank memory systems and their contention patterns</span>
+                        </a>
+                    </li>
                 </ul>
             </div>
         </section>
@@ -543,6 +737,20 @@
                 </div>
                 <ul class="space-y-3">
                     <li>
+                        <a href="dataflow-loop-nests/eyeriss.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-teal-600">Eyeriss Row-Stationary Dataflow</span>
+                            <span class="text-gray-600 text-sm block mt-1">Walk through row-stationary execution and local reuse in Eyeriss</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="dataflow-loop-nests/buffet.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-teal-600">Eyeriss Buffet</span>
+                            <span class="text-gray-600 text-sm block mt-1">Step through command-and-address orchestration in the Eyeriss buffet network</span>
+                        </a>
+                    </li>
+                    <li>
                         <a href="dataflow-loop-nests/input-stationary-dataflow.html"
                             class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-teal-600">Input Stationary Dataflow</span>
@@ -554,6 +762,13 @@
                             class="viz-link block p-3 rounded-lg">
                             <span class="font-semibold text-teal-600">Output Stationary Dataflow</span>
                             <span class="text-gray-600 text-sm block mt-1">Output-stationary dataflow and accumulation behavior</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="dataflow-loop-nests/output-stationary-accelerator-8pe-parallel.html"
+                            class="viz-link block p-3 rounded-lg">
+                            <span class="font-semibold text-teal-600">Output-Stationary Accelerator (8 PE Parallel)</span>
+                            <span class="text-gray-600 text-sm block mt-1">Parallel output-stationary accumulation across 8 processing elements</span>
                         </a>
                     </li>
                     <li>
@@ -616,6 +831,157 @@
             </p>
         </div>
     </footer>
+    <script>
+        (() => {
+            const accentMap = {
+                "text-purple-600": "#7c3aed",
+                "text-blue-600": "#2563eb",
+                "text-indigo-600": "#4f46e5",
+                "text-green-600": "#16a34a",
+                "text-orange-600": "#ea580c",
+                "text-red-600": "#dc2626",
+                "text-teal-600": "#0f766e",
+                "text-pink-600": "#db2777",
+            };
+
+            const escapeXml = (value) =>
+                value
+                    .replace(/&/g, "&amp;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+
+            const hash = (value) => {
+                let result = 0;
+                for (const char of value) {
+                    result = ((result << 5) - result + char.charCodeAt(0)) | 0;
+                }
+                return Math.abs(result);
+            };
+
+            const accentFor = (element) => {
+                for (const className of element.classList) {
+                    if (accentMap[className]) {
+                        return accentMap[className];
+                    }
+                }
+                return "#2563eb";
+            };
+
+            const secondaryAccent = (seed) => {
+                const hue = seed % 360;
+                return `hsl(${hue} 80% 72%)`;
+            };
+
+            const truncate = (value, length) =>
+                value.length <= length ? value : `${value.slice(0, length - 1)}…`;
+
+            const previewSvg = ({ title, description, href, accent }) => {
+                const seed = hash(href);
+                const secondary = secondaryAccent(seed);
+                const folder = href.split("/")[0].replace(/-/g, " ").toUpperCase();
+                const label = truncate(title, 28);
+                const sublabel = truncate(description, 58);
+                const chip = truncate(href.replace(".html", ""), 28);
+
+                const bars = Array.from({ length: 4 }, (_, index) => {
+                    const x = 30 + index * 28;
+                    const height = 18 + ((seed + index * 17) % 58);
+                    const y = 128 - height;
+                    return `<rect x="${x}" y="${y}" width="18" height="${height}" rx="5" fill="rgba(255,255,255,0.78)" />`;
+                }).join("");
+
+                const nodes = Array.from({ length: 5 }, (_, index) => {
+                    const cx = 214 + ((seed + index * 31) % 74);
+                    const cy = 42 + ((seed + index * 19) % 88);
+                    const radius = 6 + ((seed + index) % 7);
+                    return `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="rgba(255,255,255,0.22)" stroke="rgba(255,255,255,0.4)" />`;
+                }).join("");
+
+                const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="192" viewBox="0 0 320 192" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="20" x2="294" y2="188" gradientUnits="userSpaceOnUse">
+      <stop stop-color="${accent}" />
+      <stop offset="1" stop-color="${secondary}" />
+    </linearGradient>
+  </defs>
+  <rect width="320" height="192" rx="20" fill="#0f172a" />
+  <rect x="12" y="12" width="296" height="168" rx="18" fill="url(#bg)" />
+  <rect x="28" y="26" width="108" height="24" rx="12" fill="rgba(15,23,42,0.18)" />
+  <text x="40" y="42" fill="white" font-size="11" font-family="Inter, Arial, sans-serif" font-weight="700" letter-spacing="1.4">${escapeXml(folder)}</text>
+  <text x="28" y="84" fill="white" font-size="22" font-family="Inter, Arial, sans-serif" font-weight="800">${escapeXml(label)}</text>
+  <text x="28" y="108" fill="rgba(255,255,255,0.92)" font-size="11" font-family="Inter, Arial, sans-serif" font-weight="500">${escapeXml(sublabel)}</text>
+  <rect x="28" y="144" width="160" height="22" rx="11" fill="rgba(15,23,42,0.18)" />
+  <text x="40" y="158" fill="white" font-size="10" font-family="Inter, Arial, sans-serif" font-weight="700">${escapeXml(chip)}</text>
+  <rect x="194" y="122" width="98" height="34" rx="16" fill="rgba(15,23,42,0.14)" />
+  <text x="212" y="144" fill="white" font-size="13" font-family="Inter, Arial, sans-serif" font-weight="800">Preview</text>
+  ${bars}
+  ${nodes}
+</svg>`.trim();
+
+                return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+            };
+
+            document.querySelectorAll("a.viz-link").forEach((link) => {
+                if (link.dataset.previewReady === "true") {
+                    return;
+                }
+
+                const title = link.querySelector(".font-semibold");
+                const description = link.querySelector(".text-sm");
+                if (!title || !description) {
+                    return;
+                }
+
+                const href = link.getAttribute("href") || "";
+                const accent = accentFor(title);
+
+                const card = document.createElement("span");
+                card.className = "viz-link-card";
+
+                const preview = document.createElement("span");
+                preview.className = "viz-preview";
+
+                const image = document.createElement("img");
+                image.loading = "lazy";
+                image.decoding = "async";
+                image.alt = `${title.textContent.trim()} preview image`;
+                image.src = previewSvg({
+                    title: title.textContent.trim(),
+                    description: description.textContent.trim(),
+                    href,
+                    accent,
+                });
+
+                const previewMeta = document.createElement("span");
+                previewMeta.className = "viz-preview-meta";
+                previewMeta.textContent = href.replace(".html", "");
+
+                const content = document.createElement("span");
+                content.className = "viz-content";
+
+                const existingChildren = Array.from(link.childNodes);
+                existingChildren.forEach((node) => content.appendChild(node));
+
+                const pathPill = document.createElement("span");
+                pathPill.className = "viz-path";
+                pathPill.textContent = href.split("/").slice(0, 2).join(" / ");
+
+                title.classList.add("viz-title");
+                description.classList.add("viz-description");
+                content.appendChild(pathPill);
+
+                preview.appendChild(image);
+                preview.appendChild(previewMeta);
+                card.appendChild(preview);
+                card.appendChild(content);
+
+                link.appendChild(card);
+                link.dataset.previewReady = "true";
+            });
+        })();
+    </script>
 </body>
 
 </html>

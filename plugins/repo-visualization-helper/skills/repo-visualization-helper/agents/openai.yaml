@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Visualization Helper"
+  short_description: "Visualizer design and review assistant for ml-concept-visualizer"
+  default_prompt: "Use $repo-visualization-helper to build, revise, or review a visualizer page and keep index metadata, responsiveness, and repo checks consistent."

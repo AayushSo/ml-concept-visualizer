@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU Branch Divergence Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .canvas-container {
+            position: relative;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        #simulationCanvas {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        .control-panel {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .thread-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 6px;
+            margin: 3px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .path-a { background-color: #f472b6; color: white; border: 2px solid #db2777; }
+        .path-a:hover { background-color: #ec4899; }
+        .path-b { background-color: #60a5fa; color: white; border: 2px solid #2563eb; }
+        .path-b:hover { background-color: #3b82f6; }
+        
+        .stat-card {
+            background: white;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row md:items-center md:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">GPU Branch Divergence</h1>
+                <p class="text-gray-600 mt-2">Performance Profiler: Measuring Throughput & Utilization</p>
+            </div>
+            <div class="mt-4 md:mt-0 flex gap-4">
+                <div class="stat-card border-l-4 border-indigo-500 min-w-[140px]">
+                    <div class="text-xs uppercase text-gray-500 font-bold">Throughput</div>
+                    <div id="throughputVal" class="text-2xl font-mono font-bold text-indigo-600">0%</div>
+                </div>
+                <div class="stat-card border-l-4 border-emerald-500 min-w-[140px]">
+                    <div class="text-xs uppercase text-gray-500 font-bold">Utilization</div>
+                    <div id="utilizationVal" class="text-2xl font-mono font-bold text-emerald-600">0%</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Sidebar: Config & Stats -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="control-panel">
+                    <h2 class="text-xl font-semibold mb-2 text-blue-700">Warp Setup</h2>
+                    <p class="text-xs text-gray-500 mb-4">Toggle threads to see how "Wasteful Cycles" increase with divergence.</p>
+                    
+                    <div class="flex flex-wrap justify-center mb-6 p-3 bg-gray-50 rounded-lg border border-gray-100" id="threadSelector"></div>
+
+                    <div class="space-y-3">
+                        <button id="stepBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all active:scale-95">
+                            Step Instruction
+                        </button>
+                        <button id="resetBtn" class="w-full bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 font-semibold py-2 px-4 rounded-lg transition">
+                            Reset Stats
+                        </button>
+                        <div class="flex items-center justify-between mt-4 px-2">
+                            <label for="autoPlay" class="text-sm font-medium text-gray-700">Auto-cycle</label>
+                            <input type="checkbox" id="autoPlay" class="w-5 h-5 accent-indigo-600">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-panel bg-gradient-to-br from-amber-50 to-orange-50 border-l-4 border-amber-400">
+                    <h3 class="font-bold text-amber-800 flex items-center gap-2">
+                        <span id="divergenceIcon">ℹ️</span> Analysis
+                    </h3>
+                    <div id="statusText" class="text-sm text-amber-900 mt-2 leading-relaxed">
+                        Ready. Configure threads and step to start profiling.
+                    </div>
+                    <div class="mt-4 pt-4 border-t border-amber-200">
+                        <div class="text-xs uppercase tracking-wider text-amber-600 font-bold mb-1">Current PC:</div>
+                        <div id="currentInstruction" class="text-lg font-mono font-bold text-gray-800 bg-white px-2 py-1 rounded border border-amber-200 shadow-sm inline-block">
+                            IDLE
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-lg text-sm">
+                    <h4 class="font-bold border-b border-indigo-700 pb-2 mb-2">Metrics Guide</h4>
+                    <p class="mb-2"><b>Throughput:</b> Useful work done per hardware cycle. Divergence drops this because "waiting" threads do zero work.</p>
+                    <p><b>Utilization:</b> Ratio of active execution lanes vs total available lanes in the warp.</p>
+                </div>
+            </div>
+
+            <!-- Visualization -->
+            <div class="lg:col-span-3 space-y-4">
+                <div class="canvas-container">
+                    <canvas id="simulationCanvas"></canvas>
+                </div>
+                
+                <div class="flex gap-4">
+                    <div class="flex-1 bg-white p-3 rounded-xl shadow-sm text-sm border-t-4 border-pink-400 text-center">
+                        <span class="font-bold text-pink-600">Path A</span>
+                    </div>
+                    <div class="flex-1 bg-white p-3 rounded-xl shadow-sm text-sm border-t-4 border-blue-400 text-center">
+                        <span class="font-bold text-blue-600">Path B</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+        const threadSelector = document.getElementById('threadSelector');
+        const stepBtn = document.getElementById('stepBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const autoPlay = document.getElementById('autoPlay');
+        const statusText = document.getElementById('statusText');
+        const currentInstElem = document.getElementById('currentInstruction');
+        const divergenceIcon = document.getElementById('divergenceIcon');
+        const throughputVal = document.getElementById('throughputVal');
+        const utilizationVal = document.getElementById('utilizationVal');
+
+        const THREAD_COUNT = 8;
+        const STEPS = [
+            { id: 'start', label: 'Common Entry', description: 'Synchronized entry.', color: '#94a3b8' },
+            { id: 'branch', label: 'Divergent Branch', description: 'Condition Check.', color: '#f59e0b' },
+            { id: 'pathA', label: 'Executing Path A', description: 'Path A active.', color: '#f472b6' },
+            { id: 'pathB', label: 'Executing Path B', description: 'Path B active.', color: '#60a5fa' },
+            { id: 'merge', label: 'Convergence Point', description: 'Paths merged.', color: '#94a3b8' }
+        ];
+
+        let currentStepIndex = 0;
+        let threadDecisions = [true, false, true, false, true, false, true, false]; // Default: High Divergence
+        let animationFrame = 0;
+
+        // Metrics Tracking
+        let totalCycles = 0;
+        let activeLanesTotal = 0;
+        let usefulInstructionsTotal = 0;
+
+        function init() {
+            canvas.width = 900;
+            canvas.height = 650;
+            updateThreadSelectors();
+            resetStats();
+            requestAnimationFrame(drawLoop);
+        }
+
+        function resetStats() {
+            currentStepIndex = 0;
+            totalCycles = 0;
+            activeLanesTotal = 0;
+            usefulInstructionsTotal = 0;
+            updateStatus();
+            updateMetrics();
+        }
+
+        function updateThreadSelectors() {
+            threadSelector.innerHTML = '';
+            for (let i = 0; i < THREAD_COUNT; i++) {
+                const btn = document.createElement('div');
+                btn.className = `thread-toggle ${threadDecisions[i] ? 'path-a' : 'path-b'}`;
+                btn.innerText = `T${i}`;
+                btn.onclick = () => {
+                    if (currentStepIndex === 0) {
+                        threadDecisions[i] = !threadDecisions[i];
+                        btn.className = `thread-toggle ${threadDecisions[i] ? 'path-a' : 'path-b'}`;
+                        resetStats();
+                    }
+                };
+                threadSelector.appendChild(btn);
+            }
+        }
+
+        function drawLoop() {
+            draw();
+            animationFrame++;
+            requestAnimationFrame(drawLoop);
+        }
+
+        function isStepValid(index) {
+            const hasA = threadDecisions.includes(true);
+            const hasB = threadDecisions.includes(false);
+            if (index === 2 && !hasA) return false;
+            if (index === 3 && !hasB) return false;
+            return true;
+        }
+
+        function getActiveThreadCountForStep(idx) {
+            const step = STEPS[idx];
+            if (!isStepValid(idx)) return 0;
+            if (['start', 'branch', 'merge'].includes(step.id)) return THREAD_COUNT;
+            if (step.id === 'pathA') return threadDecisions.filter(d => d).length;
+            if (step.id === 'pathB') return threadDecisions.filter(d => !d).length;
+            return 0;
+        }
+
+        function updateMetrics() {
+            if (totalCycles === 0) {
+                throughputVal.innerText = "100%";
+                utilizationVal.innerText = "100%";
+                return;
+            }
+
+            const util = (activeLanesTotal / (totalCycles * THREAD_COUNT)) * 100;
+            utilizationVal.innerText = util.toFixed(1) + "%";
+            
+            const throughput = util; 
+            throughputVal.innerText = throughput.toFixed(1) + "%";
+            
+            if (util < 70) {
+                utilizationVal.className = "text-2xl font-mono font-bold text-red-600";
+            } else if (util < 90) {
+                utilizationVal.className = "text-2xl font-mono font-bold text-amber-600";
+            } else {
+                utilizationVal.className = "text-2xl font-mono font-bold text-emerald-600";
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const centerX = 160;
+            const splitX_A = 80;
+            const splitX_B = 240;
+            const rightColX = 350;
+            const nodeW = 110;
+            const nodeH = 35;
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('PROGRAM FLOW', 40, 40);
+            ctx.fillText('WARP LANES (LANE BUS)', rightColX, 40);
+
+            // Flowchart Arrows and Connections
+            const hasA = threadDecisions.includes(true);
+            const hasB = threadDecisions.includes(false);
+
+            // 1. Entry to Branch (THE FIX)
+            drawStraightArrow(centerX, 100 + nodeH/2, centerX, 210 - 25, '#94a3b8');
+
+            // 2. Branch to Paths
+            drawPathLine(centerX, 210 + 25, splitX_A, 320, hasA ? '#db2777' : '#e2e8f0');
+            drawPathLine(centerX, 210 + 25, splitX_B, 430, hasB ? '#2563eb' : '#e2e8f0');
+
+            // 3. Paths to Merge
+            drawPathLine(splitX_A, 320 + nodeH/2, centerX, 540, hasA ? '#94a3b8' : '#f1f5f9');
+            drawPathLine(splitX_B, 430 + nodeH/2, centerX, 540, hasB ? '#94a3b8' : '#f1f5f9');
+
+            // Nodes
+            drawNode(centerX, 100, STEPS[0], currentStepIndex === 0);
+            drawNode(centerX, 210, STEPS[1], currentStepIndex === 1, true);
+            drawNode(splitX_A, 320, STEPS[2], currentStepIndex === 2);
+            drawNode(splitX_B, 430, STEPS[3], currentStepIndex === 3);
+            drawNode(centerX, 540, STEPS[4], currentStepIndex === 4);
+
+            // Thread Lanes with Occupancy Visualization
+            STEPS.forEach((step, index) => {
+                const y = 85 + (index * 105);
+                const isActiveStep = currentStepIndex === index;
+                const isVisited = isStepValid(index);
+
+                ctx.globalAlpha = isVisited ? 1.0 : 0.2;
+
+                const lanesBgW = 50 * THREAD_COUNT + 10;
+                
+                if (isActiveStep) {
+                    const gradient = ctx.createLinearGradient(rightColX, 0, rightColX + lanesBgW, 0);
+                    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.1)');
+                    gradient.addColorStop(1, 'rgba(99, 102, 241, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(rightColX - 20, y - 5, lanesBgW + 40, 75);
+                }
+
+                ctx.fillStyle = isActiveStep ? '#fef3c7' : '#f8fafc';
+                ctx.strokeStyle = isActiveStep ? '#f59e0b' : '#e2e8f0';
+                ctx.lineWidth = isActiveStep ? 2 : 1;
+                ctx.beginPath();
+                ctx.roundRect(rightColX, y, lanesBgW, 65, 8);
+                ctx.fill(); ctx.stroke();
+
+                if (isVisited) {
+                    const activeCount = getActiveThreadCountForStep(index);
+                    const occ = (activeCount / THREAD_COUNT) * 100;
+                    ctx.fillStyle = occ === 100 ? '#059669' : (occ > 0 ? '#d97706' : '#94a3b8');
+                    ctx.font = 'bold 10px monospace';
+                    ctx.fillText(`${occ}% Lane Util`, rightColX + lanesBgW - 85, y - 5);
+                }
+
+                ctx.fillStyle = isActiveStep ? '#92400e' : '#94a3b8';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`CYCLE ${index + 1}: ${step.id.toUpperCase()}`, rightColX + 5, y - 5);
+
+                for (let t = 0; t < THREAD_COUNT; t++) {
+                    const tx = rightColX + 10 + (t * 50) + 22;
+                    const ty = y + 32;
+                    let active = false;
+                    if (isVisited) {
+                        if (['start', 'branch', 'merge'].includes(step.id)) active = true;
+                        else if (step.id === 'pathA' && threadDecisions[t]) active = true;
+                        else if (step.id === 'pathB' && !threadDecisions[t]) active = true;
+                    }
+
+                    if (active) {
+                        const color = step.id === 'pathA' ? '#db2777' : (step.id === 'pathB' ? '#2563eb' : '#475569');
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 3;
+                        ctx.beginPath(); ctx.moveTo(tx, ty - 15); ctx.lineTo(tx, ty + 15); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(tx - 6, ty + 7); ctx.lineTo(tx, ty + 15); ctx.lineTo(tx + 6, ty + 7); ctx.stroke();
+                        if (isActiveStep) {
+                            const pulse = Math.sin(animationFrame * 0.1) * 4;
+                            ctx.fillStyle = color + '33';
+                            ctx.beginPath(); ctx.arc(tx, ty + 15, 12 + pulse, 0, Math.PI * 2); ctx.fill();
+                        }
+                    } else {
+                        ctx.fillStyle = '#e2e8f0';
+                        ctx.font = 'bold 14px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('✖', tx, ty + 5);
+                    }
+                }
+                ctx.globalAlpha = 1.0;
+            });
+        }
+
+        function drawNode(x, y, step, active, isDiamond = false) {
+            const w = 110;
+            const h = 40;
+            const isVisited = isStepValid(STEPS.indexOf(step));
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.globalAlpha = isVisited ? 1.0 : 0.2;
+            
+            if (active) {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = 'rgba(245, 158, 11, 0.4)';
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 4;
+            } else {
+                ctx.strokeStyle = '#334155';
+                ctx.lineWidth = 2;
+            }
+
+            ctx.fillStyle = step.color;
+            ctx.beginPath();
+            if (isDiamond) {
+                ctx.moveTo(0, -h/2 - 5); ctx.lineTo(w/2 + 5, 0); ctx.lineTo(0, h/2 + 5); ctx.lineTo(-w/2 - 5, 0); ctx.closePath();
+            } else {
+                ctx.roundRect(-w/2, -h/2, w, h, 6);
+            }
+            ctx.fill(); ctx.stroke();
+
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = (step.id === 'pathB' || step.id === 'start' || step.id === 'merge') ? 'white' : 'black';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(step.label, 0, 4);
+            ctx.restore();
+        }
+
+        function drawStraightArrow(x1, y1, x2, y2, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            
+            // Arrowhead
+            ctx.beginPath();
+            ctx.moveTo(x2 - 5, y2 - 8);
+            ctx.lineTo(x2, y2);
+            ctx.lineTo(x2 + 5, y2 - 8);
+            ctx.stroke();
+        }
+
+        function drawPathLine(x1, y1, x2, y2, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.bezierCurveTo(x1, (y1+y2)/2, x2, (y1+y2)/2, x2, y2 - 20);
+            ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x2 - 5, y2 - 28); ctx.lineTo(x2, y2 - 20); ctx.lineTo(x2 + 5, y2 - 28); ctx.stroke();
+        }
+
+        function getNextStepIndex(idx) {
+            const hasA = threadDecisions.includes(true);
+            const hasB = threadDecisions.includes(false);
+            if (idx === 0) return 1;
+            if (idx === 1) return hasA ? 2 : (hasB ? 3 : 4);
+            if (idx === 2) return hasB ? 3 : 4;
+            if (idx === 3) return 4;
+            return 0; // Loop back
+        }
+
+        function updateStatus() {
+            const step = STEPS[currentStepIndex];
+            currentInstElem.innerText = step.label;
+            const hasA = threadDecisions.includes(true);
+            const hasB = threadDecisions.includes(false);
+            const isDivergent = hasA && hasB;
+
+            if (currentStepIndex === 1) {
+                if (isDivergent) {
+                    divergenceIcon.innerText = '⚠️';
+                    statusText.innerHTML = "<strong>Divergence Detected.</strong> Occupancy will drop to " + ((threadDecisions.filter(d => d).length / THREAD_COUNT) * 100).toFixed(0) + "% in the next cycle.";
+                } else {
+                    divergenceIcon.innerText = '✅';
+                    statusText.innerHTML = "<strong>Uniform Branch.</strong> 100% Efficiency maintained.";
+                }
+            } else {
+                divergenceIcon.innerText = 'ℹ️';
+                statusText.innerText = step.description;
+            }
+        }
+
+        stepBtn.onclick = () => {
+            const activeCount = getActiveThreadCountForStep(currentStepIndex);
+            activeLanesTotal += activeCount;
+            totalCycles += 1;
+            
+            currentStepIndex = getNextStepIndex(currentStepIndex);
+            updateStatus();
+            updateMetrics();
+        };
+
+        resetBtn.onclick = resetStats;
+
+        let autoInterval;
+        autoPlay.onchange = () => {
+            if (autoPlay.checked) {
+                autoInterval = setInterval(() => {
+                    stepBtn.click();
+                }, 1500);
+            } else {
+                clearInterval(autoInterval);
+            }
+        };
+
+        window.onload = init;
+    </script>
+</body>
+</html>

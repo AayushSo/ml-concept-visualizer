@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CUDA Execution Architecture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        canvas {
+            cursor: crosshair;
+            max-width: 100%;
+            height: auto;
+            touch-action: none;
+        }
+        .highlight-text {
+            color: #d97706; /* Amber 600 */
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800 p-4 md:p-8 flex flex-col items-center">
+
+    <div class="max-w-7xl w-full mb-6 text-center">
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">CUDA Execution Architecture</h1>
+        <p class="text-gray-600">Hover over the diagram components to understand how GPUs organize parallel computation.</p>
+    </div>
+
+    <div class="flex flex-col xl:flex-row gap-6 max-w-7xl w-full">
+        <!-- Canvas Container -->
+        <div class="w-full xl:w-2/3 bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200 flex justify-center items-center p-4 relative">
+            <canvas id="cudaCanvas" width="800" height="900" class="rounded-xl shadow-inner border border-gray-100 bg-white"></canvas>
+            
+            <!-- Mobile touch hint -->
+            <div class="absolute bottom-6 right-6 bg-black/70 text-white px-3 py-1 rounded-full text-xs xl:hidden animate-pulse pointer-events-none">
+                Tap diagram to explore
+            </div>
+        </div>
+
+        <!-- Educational Info Panel -->
+        <div class="w-full xl:w-1/3 flex flex-col gap-4 h-auto xl:h-[900px]">
+            <div id="infoCard" class="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 flex flex-col h-full transition-all duration-300">
+                <div class="flex items-center gap-3 mb-4">
+                    <div id="iconContainer" class="p-3 rounded-lg bg-blue-100 text-blue-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    </div>
+                    <h2 id="infoTitle" class="text-2xl font-bold text-gray-900">Interactive Mode</h2>
+                </div>
+                
+                <div class="h-px w-full bg-gray-200 mb-6"></div>
+                
+                <div id="infoContent" class="flex-grow text-gray-700 leading-relaxed text-lg space-y-4">
+                    <p>Welcome to the interactive CUDA hierarchy explorer!</p>
+                    <p>Move your mouse (or tap on mobile) over different parts of the diagram on the left.</p>
+                    <ul class="list-disc pl-5 space-y-2 mt-4 text-gray-600">
+                        <li>Hover over the green <span class="font-semibold text-green-600">Grid</span>.</li>
+                        <li>Hover over the orange <span class="font-semibold text-orange-500">Blocks</span>.</li>
+                        <li>Explore the zoomed-in grid of <span class="font-semibold text-orange-700">Threads</span>.</li>
+                        <li>See how they connect to <span class="font-semibold text-blue-500">Shared Memory</span>.</li>
+                    </ul>
+                </div>
+
+                <div class="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <h4 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Key Concept</h4>
+                    <p id="keyConcept" class="text-sm text-gray-600 italic">
+                        GPUs execute code in parallel using a massive number of threads organized in a rigid hierarchy.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('cudaCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI Elements
+    const infoTitle = document.getElementById('infoTitle');
+    const infoContent = document.getElementById('infoContent');
+    const keyConcept = document.getElementById('keyConcept');
+    const iconContainer = document.getElementById('iconContainer');
+
+    // Layout Config
+    const W = canvas.width;
+    const H = canvas.height;
+    
+    let time = 0;
+    let hoveredEntity = null;
+    let mousePos = { x: -1000, y: -1000 };
+
+    // --- Data Definitions ---
+    const educationalContent = {
+        'grid': {
+            title: 'The Grid',
+            iconColor: 'bg-green-100 text-green-600',
+            icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>`,
+            content: `
+                <p>A <strong>Grid</strong> represents the entire set of threads launched for a single kernel execution by the CPU.</p>
+                <p>When you tell the GPU to run a function (kernel), it spans out the workload across a grid. Grids are composed of many <strong>Thread Blocks</strong>.</p>
+                <p>In this diagram, the Grid contains a 2D array of Blocks (3 columns x 2 rows).</p>
+            `,
+            concept: "Grids scale the computation. A grid allows a kernel to execute across the entire GPU, utilizing multiple Streaming Multiprocessors (SMs)."
+        },
+        'block': {
+            title: 'Thread Block',
+            iconColor: 'bg-orange-100 text-orange-600',
+            icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/></svg>`,
+            content: `
+                <p>A <strong>Thread Block</strong> (or just Block) is a tightly knit group of threads that execute together.</p>
+                <p>Blocks are crucial because threads <em>within the same block</em> can cooperate. They can synchronize their execution using barriers and share data through fast, on-chip <strong>Shared Memory</strong>.</p>
+                <p>Threads in <em>different</em> blocks cannot safely communicate with each other during kernel execution.</p>
+            `,
+            concept: "Blocks are independent. The GPU scheduler can assign any block to any available Streaming Multiprocessor, in any order."
+        },
+        'thread': {
+            title: 'Thread',
+            iconColor: 'bg-red-100 text-red-600',
+            icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
+            content: `
+                <p>A <strong>Thread</strong> is the fundamental unit of execution in CUDA (represented by the squiggly arrows).</p>
+                <p>Every thread executes the exact same code (the kernel), but usually on different pieces of data. This is known as <strong>SIMT</strong> (Single Instruction, Multiple Threads).</p>
+                <p>Each thread has its own private registers and local memory. Threads use their 3D coordinates (Thread ID) to figure out which part of the data to process.</p>
+            `,
+            concept: "A typical GPU can execute tens of thousands of threads simultaneously, hiding memory access latency through rapid context switching."
+        },
+        'shared_memory': {
+            title: 'Shared Memory',
+            iconColor: 'bg-blue-100 text-blue-600',
+            icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>`,
+            content: `
+                <p><strong>Shared Memory</strong> is extremely fast, user-managed cache located on the GPU chip itself.</p>
+                <p>Unlike global memory (which takes hundreds of cycles to access), shared memory is accessed in just a few cycles. It is allocated <em>per block</em>.</p>
+                <p>The red arrows show threads reading from and writing to this memory space, allowing them to collaborate on complex calculations efficiently.</p>
+            `,
+            concept: "Optimizing CUDA code heavily relies on loading data from slow Global Memory into fast Shared Memory, processing it, and writing the result back."
+        }
+    };
+
+    // --- Geometry ---
+    const regions = []; // To store hitboxes
+    
+    // Top Grid setup
+    const gridRect = { x: 220, y: 70, w: 360, h: 230, type: 'grid' };
+    
+    // Blocks inside Top Grid
+    const blockRows = 2;
+    const blockCols = 3;
+    const blockW = 100;
+    const blockH = 90;
+    const blockPadX = 15;
+    const blockPadY = 15;
+    const topBlocks = [];
+    
+    for (let r = 0; r < blockRows; r++) {
+        for (let c = 0; c < blockCols; c++) {
+            const bx = gridRect.x + blockPadX + c * (blockW + blockPadX);
+            const by = gridRect.y + blockPadY + r * (blockH + blockPadY);
+            topBlocks.push({ r, c, x: bx, y: by, w: blockW, h: blockH, type: 'block', id: `TopBlock(${c},${r})` });
+        }
+    }
+
+    // Enlarged Block setup (Zoomed in Block(1,1))
+    const enlargedBlock = { x: 120, y: 440, w: 560, h: 320, type: 'block', id: 'EnlargedBlock(1,1)' };
+    
+    // Threads inside Enlarged Block
+    const threadCols = 4;
+    const threadRows = 3;
+    const threadPad = 2;
+    // Calculate thread dimensions to fill the block perfectly leaving space for title
+    const threadHeaderH = 30;
+    const threadW = (enlargedBlock.w - (threadCols + 1) * threadPad) / threadCols;
+    const threadH = (enlargedBlock.h - threadHeaderH - (threadRows + 1) * threadPad) / threadRows;
+    const threads = [];
+
+    for (let r = 0; r < threadRows; r++) {
+        for (let c = 0; c < threadCols; c++) {
+            const tx = enlargedBlock.x + threadPad + c * (threadW + threadPad);
+            const ty = enlargedBlock.y + threadHeaderH + threadPad + r * (threadH + threadPad);
+            threads.push({ r, c, x: tx, y: ty, w: threadW, h: threadH, type: 'thread', id: `Thread(${c},${r})` });
+        }
+    }
+
+    // Shared Memory Rectangles
+    const sharedMems = [
+        // Top left
+        { x: 30, y: 100, w: 140, h: 40, type: 'shared_memory', id: 'smem_tl' },
+        { x: 30, y: 195, w: 140, h: 40, type: 'shared_memory', id: 'smem_ml' },
+        // Top Middle
+        { x: 335, y: 15, w: 130, h: 40, type: 'shared_memory', id: 'smem_tm' },
+        // Top Right
+        { x: 630, y: 100, w: 140, h: 40, type: 'shared_memory', id: 'smem_tr' },
+        { x: 630, y: 195, w: 140, h: 40, type: 'shared_memory', id: 'smem_br' },
+        // Bottom large
+        { x: 180, y: 800, w: 440, h: 50, type: 'shared_memory', id: 'smem_bottom' }
+    ];
+
+    // Build hit region list (order matters for overlap, smallest/innermost last)
+    regions.push(gridRect);
+    topBlocks.forEach(b => regions.push(b));
+    regions.push(enlargedBlock);
+    threads.forEach(t => regions.push(t));
+    sharedMems.forEach(sm => regions.push(sm));
+
+
+    // --- Drawing Utilities ---
+    
+    function drawRect(ctx, rect, fillStyle, strokeStyle, lineWidth = 1) {
+        ctx.fillStyle = fillStyle;
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    }
+
+    function drawText(ctx, text, x, y, font, fillStyle, align = 'center') {
+        ctx.font = font;
+        ctx.fillStyle = fillStyle;
+        ctx.textAlign = align;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x, y);
+    }
+
+    function drawSquigglyArrow(ctx, startX, startY, length, phaseOffset = 0, color = "#000") {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2;
+        let x = startX;
+        let y = startY;
+        ctx.moveTo(x, y);
+        
+        const amplitude = 2.5;
+        const frequency = 0.4;
+        
+        // Draw squiggles
+        for (let i = 0; i < length - 8; i += 2) {
+            // Add time to animate downwards wave effect
+            x = startX + Math.sin(i * frequency + time * 0.1 + phaseOffset) * amplitude;
+            ctx.lineTo(x, y + i);
+        }
+        ctx.stroke();
+
+        // Draw arrowhead
+        const tipY = startY + length;
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.moveTo(x, tipY - 8);
+        ctx.lineTo(x - 3, tipY - 8);
+        ctx.lineTo(x, tipY);
+        ctx.lineTo(x + 3, tipY - 8);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawCommunicationArrow(ctx, x1, y1, x2, y2, color="#dc2626", drawArrowHeads="both", animate=true) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const angle = Math.atan2(dy, dx);
+        const len = Math.sqrt(dx*dx + dy*dy);
+        
+        ctx.save();
+        ctx.translate(x1, y1);
+        ctx.rotate(angle);
+        
+        // Base line
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2;
+        ctx.moveTo(0, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+
+        // Arrow heads
+        ctx.fillStyle = color;
+        const headLen = 8;
+        const halfWidth = 3.5;
+        
+        if (drawArrowHeads === "both" || drawArrowHeads === "end") {
+            ctx.beginPath();
+            ctx.moveTo(len, 0);
+            ctx.lineTo(len - headLen, -halfWidth);
+            ctx.lineTo(len - headLen, halfWidth);
+            ctx.fill();
+        }
+        
+        if (drawArrowHeads === "both" || drawArrowHeads === "start") {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(headLen, -halfWidth);
+            ctx.lineTo(headLen, halfWidth);
+            ctx.fill();
+        }
+
+        // Animate data flow (little moving dots along the line)
+        if (animate) {
+            const numDots = Math.max(1, Math.floor(len / 35));
+            ctx.fillStyle = "#fff";
+            for (let i = 0; i < numDots; i++) {
+                // Moving offset
+                let offset = (time * 0.6 + i * (len / numDots)) % len;
+                if(offset < 0) offset += len;
+                
+                ctx.beginPath();
+                ctx.arc(offset, 0, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        ctx.restore();
+    }
+
+    // --- Main Render Loop ---
+
+    function render() {
+        ctx.clearRect(0, 0, W, H);
+        
+        // 1. Draw Zoom Dashed Lines FIRST (so they are under the blocks)
+        const targetBlock = topBlocks.find(b => b.c === 1 && b.r === 1);
+        if (targetBlock) {
+            ctx.beginPath();
+            ctx.setLineDash([6, 6]);
+            ctx.strokeStyle = "#cbd5e1"; // lighter gray for clean look
+            ctx.lineWidth = 1;
+            // Left dash
+            ctx.moveTo(targetBlock.x, targetBlock.y + targetBlock.h);
+            ctx.lineTo(enlargedBlock.x, enlargedBlock.y);
+            // Right dash
+            ctx.moveTo(targetBlock.x + targetBlock.w, targetBlock.y + targetBlock.h);
+            ctx.lineTo(enlargedBlock.x + enlargedBlock.w, enlargedBlock.y);
+            ctx.stroke();
+            ctx.setLineDash([]); // reset
+        }
+
+
+        // 2. Draw Top Grid
+        const isGridHovered = hoveredEntity?.type === 'grid';
+        drawRect(ctx, gridRect, 
+            isGridHovered ? '#b6fa8c' : '#a7f474', 
+            isGridHovered ? '#4ade80' : '#86dc50', 
+            isGridHovered ? 2 : 1
+        );
+        drawText(ctx, "Grid", gridRect.x + 8, gridRect.y + 12, "bold 13px Inter", "#000", "left");
+
+
+        // 3. Draw Top Blocks
+        topBlocks.forEach(block => {
+            const isHovered = hoveredEntity?.id === block.id || (hoveredEntity?.type === 'block' && block.c===1 && block.r===1 && hoveredEntity.id === 'EnlargedBlock(1,1)');
+            
+            drawRect(ctx, block, 
+                isHovered ? '#ffc84d' : '#ffb320', 
+                isHovered ? '#ea580c' : '#d97706', 
+                isHovered ? 2 : 1
+            );
+            drawText(ctx, `Block(${block.c}, ${block.r})`, block.x + block.w/2, block.y + 12, "bold 12px Inter", "#000");
+            
+            // Draw mini threads inside top blocks
+            const pad = block.w / 6;
+            for(let i=1; i<=4; i++) {
+                drawSquigglyArrow(ctx, block.x + i*pad + 2, block.y + 30, block.h - 40, block.x * 0.1, "#000");
+            }
+        });
+
+
+        // 4. Draw Enlarged Block
+        const isEnlargedHovered = hoveredEntity?.id === 'EnlargedBlock(1,1)';
+        drawRect(ctx, enlargedBlock, 
+            isEnlargedHovered ? '#ffc84d' : '#ffb320', 
+            isEnlargedHovered ? '#ea580c' : '#d97706', 
+            isEnlargedHovered ? 3 : 2
+        );
+        drawText(ctx, "Block(1, 1)", enlargedBlock.x + enlargedBlock.w/2, enlargedBlock.y + threadHeaderH/2, "bold 16px Inter", "#000");
+        
+        // "Thread block" label pointing to it
+        drawText(ctx, "Thread block", 140, 420, "bold 18px Inter", "#dc2626", "right");
+        drawCommunicationArrow(ctx, 145, 420, 180, 440, "#dc2626", "end", false);
+
+
+        // 5. Draw Threads inside Enlarged Block
+        threads.forEach(thread => {
+            const isHovered = hoveredEntity?.id === thread.id;
+            
+            drawRect(ctx, thread, 
+                isHovered ? '#ff8e2b' : '#f97316', // slightly darker orange than block
+                isHovered ? '#9a3412' : '#c2410c', 
+                isHovered ? 2 : 1
+            );
+            drawText(ctx, `Thread(${thread.c}, ${thread.r})`, thread.x + thread.w/2, thread.y + 14, "bold 12px Inter", "#000");
+            
+            // Squiggly arrows
+            drawSquigglyArrow(ctx, thread.x + thread.w/2, thread.y + 35, thread.h - 45, (thread.r * 10 + thread.c * 5), isHovered ? "#fff" : "#000");
+        });
+
+
+        // 6. Draw Shared Memories with centralized labels
+        sharedMems.forEach(sm => {
+            const isHovered = hoveredEntity?.type === 'shared_memory';
+            drawRect(ctx, sm, 
+                isHovered ? '#9bd6ff' : '#80c6ff', 
+                isHovered ? '#2563eb' : '#3b82f6', 
+                isHovered ? 2 : 1
+            );
+            
+            // Label ALL Shared Memories consistently inside the blocks
+            const fontSize = sm.id === 'smem_bottom' ? '18px' : '14px';
+            drawText(ctx, "Shared memory", sm.x + sm.w/2, sm.y + sm.h/2, `bold ${fontSize} Inter`, "#dc2626");
+        });
+
+        // 7. Draw Red Communication Arrows smoothly mapping between structures
+        
+        // Helper block references
+        const b00 = topBlocks[0]; const b10 = topBlocks[1]; const b20 = topBlocks[2];
+        const b01 = topBlocks[3];                           const b21 = topBlocks[5];
+        
+        const sm_tl = sharedMems[0]; const sm_ml = sharedMems[1]; const sm_tm = sharedMems[2];
+        const sm_tr = sharedMems[3]; const sm_br = sharedMems[4]; const sm_bot = sharedMems[5];
+
+        // Arrows Top Left
+        drawCommunicationArrow(ctx, b00.x + 15, b00.y + 40, sm_tl.x + sm_tl.w + 5, sm_tl.y + 10, "#dc2626", "both");
+        drawCommunicationArrow(ctx, b00.x + 30, b00.y + 60, sm_tl.x + sm_tl.w + 5, sm_tl.y + 25, "#dc2626", "both");
+        
+        drawCommunicationArrow(ctx, b01.x + 15, b01.y + 40, sm_ml.x + sm_ml.w + 5, sm_ml.y + 10, "#dc2626", "both");
+        drawCommunicationArrow(ctx, b01.x + 30, b01.y + 60, sm_ml.x + sm_ml.w + 5, sm_ml.y + 25, "#dc2626", "both");
+        
+        // Arrows Top Mid
+        drawCommunicationArrow(ctx, b10.x + 30, b10.y + 30, sm_tm.x + 30, sm_tm.y + sm_tm.h + 5, "#dc2626", "both");
+        drawCommunicationArrow(ctx, b10.x + 70, b10.y + 30, sm_tm.x + sm_tm.w - 30, sm_tm.y + sm_tm.h + 5, "#dc2626", "both");
+        
+        // Arrows Top Right
+        drawCommunicationArrow(ctx, b20.x + b20.w - 15, b20.y + 40, sm_tr.x - 5, sm_tr.y + 10, "#dc2626", "both");
+        drawCommunicationArrow(ctx, b20.x + b20.w - 30, b20.y + 60, sm_tr.x - 5, sm_tr.y + 25, "#dc2626", "both");
+        
+        drawCommunicationArrow(ctx, b21.x + b21.w - 15, b21.y + 40, sm_br.x - 5, sm_br.y + 10, "#dc2626", "both");
+        drawCommunicationArrow(ctx, b21.x + b21.w - 30, b21.y + 60, sm_br.x - 5, sm_br.y + 25, "#dc2626", "both");
+        
+        // Arrows Bottom (Threads to Shared Memory)
+        const bsmY = sm_bot.y - 5; // Target slightly above the bottom block
+        const bsmMidX = sm_bot.x + sm_bot.w/2;
+
+        const createBottomArrow = (tCol, tRow, xOffset, endXOffset, heads) => {
+            const thread = threads.find(t => t.c === tCol && t.r === tRow);
+            if(thread) {
+                const startX = thread.x + thread.w/2 + xOffset;
+                const startY = thread.y + thread.h - 15;
+                drawCommunicationArrow(ctx, startX, startY, bsmMidX + endXOffset, bsmY, "#dc2626", heads);
+            }
+        };
+
+        // Replicating a structured, scattered web of connections to shared memory
+        createBottomArrow(0, 2, -10, -160, "both");
+        createBottomArrow(0, 2,  10, -120, "end");
+        
+        createBottomArrow(1, 1,   0, -70, "both");
+        createBottomArrow(1, 2, -10, -40, "end");
+        createBottomArrow(1, 2,  15, -10, "start");
+
+        createBottomArrow(2, 2, -15,  20, "both");
+        createBottomArrow(2, 1,   0,  60, "end");
+        createBottomArrow(2, 2,  10,  90, "start");
+
+        createBottomArrow(3, 2, -15, 120, "both");
+        createBottomArrow(3, 0,  -5, 150, "both");
+        createBottomArrow(3, 2,  15, 180, "end");
+
+
+        // Advance time
+        time++;
+        requestAnimationFrame(render);
+    }
+
+    // --- Interaction Logic ---
+    
+    function isInside(pos, rect) {
+        return pos.x >= rect.x && pos.x <= rect.x + rect.w &&
+               pos.y >= rect.y && pos.y <= rect.y + rect.h;
+    }
+
+    function handleMouseMove(e) {
+        const rect = canvas.getBoundingClientRect();
+        // Scale mouse coordinates to match internal canvas resolution
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        
+        mousePos.x = (e.clientX - rect.left) * scaleX;
+        mousePos.y = (e.clientY - rect.top) * scaleY;
+
+        // Determine hovered entity (reverse order so we pick the smallest/topmost)
+        let found = null;
+        for (let i = regions.length - 1; i >= 0; i--) {
+            if (isInside(mousePos, regions[i])) {
+                found = regions[i];
+                break;
+            }
+        }
+
+        if (found !== hoveredEntity) {
+            hoveredEntity = found;
+            updateInfoPanel(found);
+            
+            if (found) {
+                canvas.style.cursor = 'pointer';
+            } else {
+                canvas.style.cursor = 'crosshair';
+            }
+        }
+    }
+
+    function updateInfoPanel(entity) {
+        if (!entity) return;
+
+        const data = educationalContent[entity.type];
+        if (!data) return;
+
+        // Apply a small animation effect
+        const infoCard = document.getElementById('infoCard');
+        infoCard.classList.remove('opacity-100');
+        infoCard.classList.add('opacity-50');
+
+        setTimeout(() => {
+            infoTitle.textContent = data.title;
+            infoContent.innerHTML = data.content;
+            keyConcept.textContent = data.concept;
+            
+            // Update Icon
+            iconContainer.className = `p-3 rounded-lg ${data.iconColor}`;
+            iconContainer.innerHTML = data.icon;
+
+            infoCard.classList.remove('opacity-50');
+            infoCard.classList.add('opacity-100');
+        }, 150);
+    }
+
+    // Event Listeners
+    canvas.addEventListener('mousemove', handleMouseMove);
+    
+    // Add touch support for mobile
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // Prevent scrolling
+        const touch = e.touches[0];
+        handleMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+    });
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+    });
+
+    // Start Loop
+    render();
+
+</script>
+</body>
+</html>

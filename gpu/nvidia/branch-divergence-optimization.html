@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CUDA Branch Divergence Hardware Masking</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --accent-green: #22c55e; /* Compute / Finish */
+            --accent-red: #ef4444;   /* Path A / If */
+            --accent-blue: #3b82f6;  /* Path B / Else */
+            --accent-highlight: #f59e0b;
+            --thread-dim: #475569;
+            --code-bg: #000000;
+            --mask-inactive: #334155;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding-bottom: 50px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1300px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        header { text-align: center; }
+        h1 { margin-bottom: 5px; font-weight: 300; letter-spacing: 1px; color: var(--accent-blue); }
+        p { color: #94a3b8; margin-top: 0; }
+
+        .layout-grid {
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 20px;
+        }
+
+        @media (max-width: 1100px) {
+            .layout-grid { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            border: 1px solid #334155;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-group { display: flex; gap: 8px; }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+            background: #334155;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        button.active { background: var(--accent-blue); }
+        button:hover { filter: brightness(1.2); }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .hardware-state {
+            margin-top: 15px;
+            padding: 15px;
+            background: #000;
+            border-radius: 8px;
+            border: 1px solid #475569;
+        }
+
+        .mask-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            display: block;
+            letter-spacing: 1px;
+        }
+
+        .mask-container, .data-container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .mask-grid {
+            display: grid;
+            grid-template-columns: repeat(32, 1fr);
+            gap: 2px;
+            flex: 1;
+        }
+
+        .mask-cell {
+            height: 12px;
+            background: var(--mask-inactive);
+            border-radius: 1px;
+            transition: background 0.1s;
+        }
+
+        .data-list {
+            flex: 1;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            background: #0a0a0a;
+            padding: 10px;
+            border-radius: 4px;
+            min-height: 40px;
+            align-content: flex-start;
+        }
+
+        .data-num {
+            padding: 1px 3px;
+            border-radius: 2px;
+            color: #444;
+            transition: all 0.2s;
+        }
+
+        .active-green { background: rgba(34, 197, 94, 0.4); color: #fff; box-shadow: 0 0 5px var(--accent-green); }
+        .active-red   { background: rgba(239, 68, 68, 0.4); color: #fff; box-shadow: 0 0 5px var(--accent-red); }
+        .active-blue  { background: rgba(59, 130, 246, 0.4); color: #fff; box-shadow: 0 0 5px var(--accent-blue); }
+        
+        .mask-cell.active-green { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+        .mask-cell.active-red   { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+        .mask-cell.active-blue  { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
+
+        .code-container {
+            position: relative;
+            background: var(--code-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+
+        .code-line {
+            padding: 2px 20px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            white-space: pre;
+            border-left: 3px solid transparent;
+            transition: background 0.3s;
+        }
+
+        .code-line.active-green { background: rgba(34, 197, 94, 0.2); border-left-color: var(--accent-green); }
+        .code-line.active-red   { background: rgba(239, 68, 68, 0.2); border-left-color: var(--accent-red); }
+        .code-line.active-blue  { background: rgba(59, 130, 246, 0.2); border-left-color: var(--accent-blue); }
+
+        .keyword { color: #f472b6; }
+        .type { color: #60a5fa; }
+        .comment { color: #6b7280; font-style: italic; }
+        .string { color: #fbbf24; }
+        .func { color: #4ade80; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-box {
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-val { font-size: 1.5rem; font-weight: bold; color: var(--accent-blue); display: block; }
+        .stat-lbl { font-size: 0.7rem; color: #64748b; text-transform: uppercase; }
+
+        #canvas-container { position: relative; overflow: hidden; }
+        canvas { display: block; width: 100%; }
+
+        .step-controls {
+            display: flex;
+            gap: 5px;
+            background: rgba(0,0,0,0.3);
+            padding: 5px;
+            border-radius: 8px;
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .color-box { width: 12px; height: 12px; border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>CUDA Branch Divergence Hardware Masking</h1>
+        <p>Analyzing Total System Efficiency & Serialization Penalties</p>
+    </header>
+
+    <div class="panel controls">
+        <div class="btn-group">
+            <button id="btn-diverged" class="active">Naive (Intra-Warp Divergence)</button>
+            <button id="btn-optimized">Optimal (Inter-Warp Branching)</button>
+        </div>
+        
+        <div class="step-controls">
+            <button id="btn-reset" title="Restart">⟲</button>
+            <button id="btn-prev" title="Step Back">Back</button>
+            <button id="btn-toggle" title="Auto Play">Play</button>
+            <button id="btn-next" title="Step Forward">Next</button>
+        </div>
+
+        <div style="display: flex; gap: 20px; align-items: center;">
+            <label class="mask-label">Speed: <input type="range" id="range-speed" min="0.5" max="5" step="0.5" value="1.5"></label>
+        </div>
+    </div>
+
+    <div class="layout-grid">
+        <div class="panel" id="canvas-container" style="position: relative;">
+            <canvas id="warpCanvas"></canvas>
+            
+            <div class="legend">
+                <div class="legend-item"><div class="color-box" style="background: var(--accent-green)"></div> Unified (Compute/Finish)</div>
+                <div class="legend-item"><div class="color-box" style="background: var(--accent-red)"></div> Path A (Do_this)</div>
+                <div class="legend-item"><div class="color-box" style="background: var(--accent-blue)"></div> Path B (Do_that)</div>
+            </div>
+
+            <div class="hardware-state">
+                <span class="mask-label">Hardware SIMT Mask (Execution State)</span>
+                <div class="mask-container">
+                    <div class="mask-grid" id="mask-grid-0"></div>
+                    <div class="mask-grid" id="mask-grid-1"></div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <span class="mask-label">Thread Data Mapping (Processed IDs)</span>
+                    <div class="data-container">
+                        <div class="data-list" id="data-list-0"></div>
+                        <div class="data-list" id="data-list-1"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="code-container">
+            <div style="background: #1e293b; padding: 10px 20px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between;">
+                <span class="mask-label" style="margin:0">Instruction Stream (PC)</span>
+                <span id="pc-status" style="font-size: 0.7rem; font-weight: bold; color: var(--accent-green);">● EXECUTING</span>
+            </div>
+            <div id="code-list"></div>
+
+            <div class="stats-grid" style="padding: 20px;">
+                <div class="stat-box">
+                    <span class="stat-val" id="stat-cycles">0</span>
+                    <span class="stat-lbl">Time (Cycles)</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-val" id="stat-ipc">0</span>
+                    <span class="stat-lbl">Instant Active</span>
+                </div>
+                <div class="stat-box" style="background: #0f172a; border: 1px solid #334155;">
+                    <span class="stat-val" id="stat-eff" style="color: var(--accent-highlight);">100%</span>
+                    <span class="stat-lbl" style="color: var(--accent-highlight);">Total Cumulative Eff.</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-val" id="stat-time">0ms</span>
+                    <span class="stat-lbl">Total Latency</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-box" id="info-text">
+        In the <b>Naive</b> case, warps execute branching logic serially, wasting clock cycles. In the <b>Optimal</b> case, Aligning data to warp boundaries allows the GPU to process branches in parallel.
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('warpCanvas');
+    const ctx = canvas.getContext('2d');
+    const codeList = document.getElementById('code-list');
+    const infoText = document.getElementById('info-text');
+    const statCycles = document.getElementById('stat-cycles');
+    const statIpc = document.getElementById('stat-ipc');
+    const statEff = document.getElementById('stat-eff');
+    const statTime = document.getElementById('stat-time');
+
+    const btnDiverged = document.getElementById('btn-diverged');
+    const btnOptimized = document.getElementById('btn-optimized');
+    const btnReset = document.getElementById('btn-reset');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnToggle = document.getElementById('btn-toggle');
+    const btnNext = document.getElementById('btn-next');
+    const rangeSpeed = document.getElementById('range-speed');
+
+    const TOTAL_THREADS = 64; 
+    let mode = 'diverged';
+    let stage = 0; 
+    let progress = 0;
+    let frame = 0;
+    let totalCycles = 0;
+    let isRunning = false;
+
+    let usefulThreadCycles = 0;
+    let totalPotentialCycles = 0;
+
+    function initHardWareUI() {
+        for (let w = 0; w < 2; w++) {
+            const maskGrid = document.getElementById(`mask-grid-${w}`);
+            const dataList = document.getElementById(`data-list-${w}`);
+            maskGrid.innerHTML = '';
+            dataList.innerHTML = '';
+            for (let i = 0; i < 32; i++) {
+                const mCell = document.createElement('div');
+                mCell.className = 'mask-cell';
+                mCell.id = `mask-${w}-${i}`;
+                maskGrid.appendChild(mCell);
+
+                const dNum = document.createElement('span');
+                dNum.className = 'data-num';
+                dNum.id = `data-${w}-${i}`;
+                dNum.innerText = getThreadDataId(w * 32 + i);
+                dataList.appendChild(dNum);
+            }
+        }
+    }
+
+    const kernelLines = [
+        { text: '__global__ void kernel(...) {', stage: -1 },
+        { text: '    Compute(idx);', stage: 0 },
+        { text: '    if (CONDITION) {', stage: 1, subStage: 'if' },
+        { text: '        Do_this(MAPPING_A);', stage: 1, subStage: 'if' },
+        { text: '    } else {', stage: 2, subStage: 'else' },
+        { text: '        Do_that(MAPPING_B);', stage: 2, subStage: 'else' },
+        { text: '    }', stage: -1 },
+        { text: '    Finish(idx);', stage: 3 }, 
+        { text: '}', stage: -1 }
+    ];
+
+    function renderCode() {
+        codeList.innerHTML = '';
+        kernelLines.forEach((line, i) => {
+            const div = document.createElement('div');
+            div.className = 'code-line';
+            div.id = `code-line-${i}`;
+            let html = line.text
+                .replace('__global__ void', '<span class="keyword">__global__ void</span>')
+                .replace('if', '<span class="keyword">if</span>')
+                .replace('else', '<span class="keyword">else</span>');
+            
+            if (line.text.includes('CONDITION')) {
+                html = html.replace('CONDITION', `<span class="func">${mode === 'diverged' ? 'idx % 2 == 0' : 'idx < 32'}</span>`);
+            }
+            if (line.text.includes('MAPPING_A')) {
+                html = html.replace('MAPPING_A', `<span class="type">${mode === 'diverged' ? 'idx' : 'idx * 2'}</span>`);
+            }
+            if (line.text.includes('MAPPING_B')) {
+                html = html.replace('MAPPING_B', `<span class="type">${mode === 'diverged' ? 'idx' : '(idx % 32) * 2 + 1'}</span>`);
+            }
+            div.innerHTML = html;
+            codeList.appendChild(div);
+        });
+    }
+
+    function getThreadDataId(idx) {
+        if (mode === 'diverged') return idx;
+        if (idx < 32) return idx * 2; 
+        return ((idx % 32) * 2) + 1; 
+    }
+
+    function getThreadBranch(idx) {
+        if (mode === 'diverged') return (idx % 2 === 0) ? 'a' : 'b';
+        return (idx < 32) ? 'a' : 'b';
+    }
+
+    function isThreadActive(idx, s) {
+        if (mode === 'diverged') {
+            if (s === 0 || s === 3) return true;
+            if (s === 1) return getThreadBranch(idx) === 'a';
+            if (s === 2) return getThreadBranch(idx) === 'b';
+        } else {
+            // Optimized parallel stages: 0 (compute), 1 (parallel branch), 2 (finish)
+            if (s === 0 || s === 1 || s === 2) return true;
+        }
+        return false;
+    }
+
+    function getThreadColor(idx, s) {
+        const isUnifiedStage = (s === 0) || (mode === 'diverged' && s === 3) || (mode === 'optimized' && s === 2);
+        if (isUnifiedStage) return '#22c55e'; 
+        const branch = getThreadBranch(idx);
+        return branch === 'a' ? '#ef4444' : '#3b82f6';
+    }
+
+    function reset() {
+        stage = 0; progress = 0; totalCycles = 0; isRunning = false; frame = 0;
+        usefulThreadCycles = 0; totalPotentialCycles = 0;
+        initHardWareUI();
+        updateUI();
+    }
+
+    function updateUI() {
+        const pcStatus = document.getElementById('pc-status');
+        const maxStage = mode === 'optimized' ? 2 : 3;
+        
+        if (pcStatus) {
+            if (isRunning) {
+                pcStatus.innerText = "● EXECUTING";
+                pcStatus.style.color = "var(--accent-green)";
+                btnToggle.innerText = "Pause";
+            } else if (stage > maxStage) {
+                pcStatus.innerText = "○ HALTED";
+                pcStatus.style.color = "var(--accent-red)";
+                btnToggle.innerText = "Replay";
+            } else {
+                pcStatus.innerText = "⏸ PAUSED";
+                pcStatus.style.color = "var(--accent-blue)";
+                btnToggle.innerText = "Play";
+            }
+        }
+        
+        btnPrev.disabled = stage === 0 && progress <= 0;
+        btnNext.disabled = stage > maxStage;
+
+        document.querySelectorAll('.code-line').forEach(l => { 
+            l.className = 'code-line';
+        });
+
+        kernelLines.forEach((l, i) => { 
+            const lineElem = document.getElementById(`code-line-${i}`);
+            if (!lineElem) return;
+            if (mode === 'optimized') {
+                if (stage === 0 && l.stage === 0) lineElem.classList.add('active-green');
+                else if (stage === 1) {
+                    if (l.subStage === 'if' || l.text.includes('if (')) lineElem.classList.add('active-red');
+                    if (l.subStage === 'else' || l.text.includes('else {')) lineElem.classList.add('active-blue');
+                } else if (stage === 2 && l.stage === 3) lineElem.classList.add('active-green');
+            } else {
+                if (l.stage === stage) {
+                    if (stage === 0 || stage === 3) lineElem.classList.add('active-green');
+                    else if (stage === 1) lineElem.classList.add('active-red');
+                    else if (stage === 2) lineElem.classList.add('active-blue');
+                }
+            }
+        });
+    }
+
+    function updateCumulativeStats(inc) {
+        let activeNow = 0;
+        const maxStage = mode === 'optimized' ? 2 : 3;
+        if (stage <= maxStage) {
+            for(let i=0; i<TOTAL_THREADS; i++) {
+                if(isThreadActive(i, stage)) activeNow++;
+            }
+            usefulThreadCycles += (activeNow * inc);
+            totalPotentialCycles += (TOTAL_THREADS * inc);
+        }
+    }
+
+    btnDiverged.onclick = () => { mode = 'diverged'; btnDiverged.classList.add('active'); btnOptimized.classList.remove('active'); renderCode(); reset(); };
+    btnOptimized.onclick = () => { mode = 'optimized'; btnOptimized.classList.add('active'); btnDiverged.classList.remove('active'); renderCode(); reset(); };
+    btnReset.onclick = reset;
+    btnToggle.onclick = () => { const maxStage = mode === 'optimized' ? 2 : 3; if(stage > maxStage) reset(); isRunning = !isRunning; updateUI(); };
+    
+    btnNext.onclick = () => { 
+        const maxStage = mode === 'optimized' ? 2 : 3;
+        if (stage > maxStage) return;
+        isRunning = false;
+        updateCumulativeStats(100 - progress);
+        progress = 0;
+        stage++;
+        totalCycles += 10;
+        updateUI();
+    };
+
+    btnPrev.onclick = () => {
+        const maxStage = mode === 'optimized' ? 2 : 3;
+        isRunning = false;
+        if (stage > 0) {
+            stage--;
+            progress = 0;
+            totalCycles = Math.max(0, totalCycles - 10);
+            // Reset cumulative metrics for recalculation
+            usefulThreadCycles = 0;
+            totalPotentialCycles = 0;
+            for(let s=0; s < stage; s++) {
+                let activeAtS = 0;
+                for(let i=0; i<TOTAL_THREADS; i++) if(isThreadActive(i, s)) activeAtS++;
+                usefulThreadCycles += (activeAtS * 100);
+                totalPotentialCycles += (TOTAL_THREADS * 100);
+            }
+        }
+        updateUI();
+    };
+
+    function drawThread(x, y1, y2, active, idx, s) {
+        ctx.beginPath();
+        const pathColor = getThreadColor(idx, s);
+        ctx.strokeStyle = active ? pathColor : '#475569';
+        ctx.lineWidth = active ? 2 : 1;
+        if (!active) ctx.setLineDash([3, 3]); else ctx.setLineDash([]);
+        ctx.moveTo(x, y1);
+        for(let py = y1; py <= y2; py += 5) {
+            ctx.lineTo(x + Math.sin(py * 0.1 + frame * 0.1) * 2, py);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const speedInput = parseFloat(rangeSpeed.value);
+        const maxStage = mode === 'optimized' ? 2 : 3;
+
+        if (isRunning) {
+            updateCumulativeStats(speedInput);
+            progress += speedInput;
+            if (progress >= 100) { progress = 0; stage++; if(stage > maxStage) isRunning = false; }
+            if (stage <= maxStage) totalCycles += (speedInput * 0.1);
+        }
+
+        const width = canvas.width / window.devicePixelRatio;
+        const height = canvas.height / window.devicePixelRatio;
+        const laneW = (width - 100) / TOTAL_THREADS;
+        const numVisibleStages = mode === 'optimized' ? 3 : 4;
+        const stageH = (height - 40) / numVisibleStages;
+        const warpGap = 20;
+
+        updateUI();
+
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        ctx.fillRect(40, 0, (TOTAL_THREADS/2) * laneW, height);
+        ctx.fillRect(40 + (TOTAL_THREADS/2) * laneW + warpGap, 0, (TOTAL_THREADS/2) * laneW, height);
+        
+        ctx.fillStyle = "#64748b";
+        ctx.font = "10px monospace";
+        ctx.fillText("WARP 0", 40, 15);
+        ctx.fillText("WARP 1", 40 + (TOTAL_THREADS/2) * laneW + warpGap, 15);
+
+        let currentActive = 0;
+
+        for (let i = 0; i < TOTAL_THREADS; i++) {
+            const warpId = Math.floor(i / 32);
+            const x = 40 + i * laneW + (warpId * warpGap);
+            const maskCell = document.getElementById(`mask-${warpId}-${i % 32}`);
+            const dataNum = document.getElementById(`data-${warpId}-${i % 32}`);
+            
+            const activeAtCurrent = isThreadActive(i, stage);
+            const isUnifiedAtCurrent = (stage === 0) || (mode === 'diverged' && stage === 3) || (mode === 'optimized' && stage === 2);
+            const branch = getThreadBranch(i);
+            
+            if (stage <= maxStage) {
+                if (maskCell) {
+                    if (activeAtCurrent) {
+                        if (isUnifiedAtCurrent) maskCell.className = `mask-cell active-green`;
+                        else maskCell.className = `mask-cell ${branch === 'a' ? 'active-red' : 'active-blue'}`;
+                        currentActive++;
+                    } else {
+                        maskCell.className = 'mask-cell';
+                    }
+                }
+                if (dataNum) {
+                    if (activeAtCurrent) {
+                        if (isUnifiedAtCurrent) dataNum.className = `data-num active-green`;
+                        else dataNum.className = `data-num ${branch === 'a' ? 'active-red' : 'active-blue'}`;
+                    } else {
+                        dataNum.className = `data-num`;
+                    }
+                }
+            } else {
+                if (maskCell) maskCell.className = 'mask-cell';
+                if (dataNum) dataNum.className = 'data-num';
+            }
+
+            for (let s = 0; s < numVisibleStages; s++) {
+                const startY = 20 + s * stageH;
+                let endY = startY + stageH;
+                const isActiveInS = isThreadActive(i, s);
+                
+                if (s > stage) {
+                   continue;
+                } else if (s === stage) {
+                   if (!isRunning) {
+                       drawThread(x, startY, endY, isActiveInS, i, s);
+                   } else {
+                       endY = startY + (progress/100) * stageH;
+                       drawThread(x, startY, endY, isActiveInS, i, s);
+                       if (isActiveInS) {
+                           ctx.fillStyle = getThreadColor(i, s);
+                           ctx.beginPath();
+                           ctx.arc(x + Math.sin(endY * 0.1 + frame * 0.1) * 2, endY, 2.5, 0, Math.PI * 2);
+                           ctx.fill();
+                       }
+                   }
+                } else {
+                   drawThread(x, startY, endY, isActiveInS, i, s);
+                }
+            }
+        }
+
+        statCycles.innerText = Math.floor(totalCycles * 10);
+        statIpc.innerText = (isRunning || (stage <= maxStage)) ? currentActive : 0;
+        
+        const cumulativeEff = totalPotentialCycles > 0 ? (usefulThreadCycles / totalPotentialCycles) * 100 : 100;
+        statEff.innerText = Math.round(cumulativeEff) + "%";
+        statTime.innerText = Math.round(totalCycles * 5) + "ms";
+
+        frame++;
+        requestAnimationFrame(animate);
+    }
+
+    function resize() {
+        const container = document.getElementById('canvas-container');
+        if (!container) return;
+        canvas.width = container.clientWidth * window.devicePixelRatio;
+        canvas.height = 450 * window.devicePixelRatio;
+        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+    renderCode();
+    initHardWareUI();
+    animate();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NVIDIA Tensor Cores Visualization</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .matrix-container {
+            position: relative;
+            padding: 8px;
+            background: rgba(30, 41, 59, 0.4);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: inline-block;
+        }
+
+        .matrix-grid {
+            display: grid;
+            gap: 2px;
+            grid-template-columns: repeat(4, 28px);
+            position: relative;
+            z-index: 5;
+        }
+
+        .cell {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: bold;
+            border-radius: 2px;
+            transition: all 0.2s ease;
+            background: #0f172a;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .cell-a { color: #60a5fa; border-color: #3b82f6; }
+        .cell-b { color: #f472b6; border-color: #db2777; }
+        .cell-c { color: #34d399; border-color: #10b981; }
+
+        .highlight-a { background: rgba(59, 130, 246, 0.6) !important; color: white; border-color: #60a5fa; box-shadow: 0 0 10px rgba(59, 130, 246, 0.4); }
+        .highlight-b { background: rgba(219, 39, 119, 0.6) !important; color: white; border-color: #f472b6; box-shadow: 0 0 10px rgba(219, 39, 119, 0.4); }
+        .highlight-res { background: rgba(16, 185, 129, 0.6) !important; color: white; border-color: #34d399; transform: scale(1.05); z-index: 20; }
+
+        /* Systolic Array Styles */
+        .systolic-container {
+            position: relative;
+            padding: 20px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+
+        .mac-unit {
+            width: 48px;
+            height: 48px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .mac-active {
+            border-color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.3);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+        }
+
+        .data-particle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            z-index: 50;
+            pointer-events: none;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .btn-active {
+            background-color: #10b981 !important;
+            color: white !important;
+        }
+
+        .fused-unit {
+            background: linear-gradient(to bottom, #1e293b, #0f172a);
+            border: 1px solid #4ade80;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        @keyframes core-pulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+
+        .core-active { animation: core-pulse 1s infinite; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 border-b border-slate-700 pb-4 flex justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
+                    NVIDIA Tensor Cores
+                </h1>
+                <p class="text-slate-400 mt-2">Hardware-Level Matrix-Matrix Multiplication (MMA)</p>
+            </div>
+            <div class="text-right hidden md:block">
+                <span id="instructionLabel" class="text-[10px] mono text-slate-500">Instruction: $HMMA.16.8.16$</span>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Sidebar Controls -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl">
+                    <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Unit Control</h2>
+                    <div class="space-y-4">
+                        <button id="modeCUDA" class="w-full py-3 bg-slate-700 rounded-lg text-sm font-semibold transition-all btn-active flex flex-col items-center">
+                            <span>CUDA Core Warp</span>
+                            <span class="text-[9px] opacity-60 font-normal">SIMT Parallelism</span>
+                        </button>
+                        <button id="modeTensor" class="w-full py-3 bg-slate-700 rounded-lg text-sm font-semibold transition-all flex flex-col items-center">
+                            <span>Tensor Core Unit</span>
+                            <span class="text-[9px] opacity-60 font-normal">MMA Fused Logic</span>
+                        </button>
+                        
+                        <div class="pt-4 space-y-2">
+                            <button id="playBtn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2">
+                                <span id="btnIcon">▶</span> <span id="btnText">Compute Matrix</span>
+                            </button>
+                            <div class="flex gap-2">
+                                <button id="stepBtn" class="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-bold transition-colors">Step</button>
+                                <button id="resetBtn" class="px-4 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-bold transition-colors">↺</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Metrics -->
+                <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                    <h3 class="text-xs font-bold text-slate-500 mb-4 uppercase">Hardware Metrics</h3>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-end">
+                            <span class="text-[10px] text-slate-400">Register Fetches</span>
+                            <span id="statMem" class="text-lg font-bold mono">128</span>
+                        </div>
+                        <div class="flex justify-between items-end">
+                            <span class="text-[10px] text-slate-400">Relative Power</span>
+                            <span id="statEff" class="text-lg font-bold mono text-emerald-400">1x</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                            <div id="efficiencyBar" class="bg-emerald-500 h-full transition-all duration-700" style="width: 10%"></div>
+                        </div>
+                        <div class="text-[9px] text-slate-500 italic mt-2">
+                            *Tensor Cores reduce power by minimizing high-energy register file accesses.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Visualization -->
+            <div class="lg:col-span-3 space-y-6">
+                <!-- Top Matrix Display -->
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-2xl relative">
+                    <div class="flex flex-col md:flex-row items-center justify-center gap-4 lg:gap-8 mb-8">
+                        <div class="text-center">
+                            <span class="text-[9px] font-bold text-blue-400 mb-2 block uppercase tracking-widest">Register File A (FP16)</span>
+                            <div class="matrix-container"><div id="matrixA" class="matrix-grid"></div></div>
+                        </div>
+                        <div class="text-xl font-bold text-slate-600">×</div>
+                        <div class="text-center">
+                            <span class="text-[9px] font-bold text-pink-400 mb-2 block uppercase tracking-widest">Register File B (FP16)</span>
+                            <div class="matrix-container"><div id="matrixB" class="matrix-grid"></div></div>
+                        </div>
+                        <div class="text-xl font-bold text-slate-600">=</div>
+                        <div class="text-center">
+                            <span class="text-[9px] font-bold text-emerald-400 mb-2 block uppercase tracking-widest">Accumulator C (FP32)</span>
+                            <div class="matrix-container"><div id="matrixRes" class="matrix-grid"></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Systolic Array Detail -->
+                    <div id="hwView" class="hidden border-t border-slate-700 pt-8 mt-4 relative">
+                        <div class="systolic-container mx-auto max-w-fit">
+                            <div id="systolicGrid" class="grid grid-cols-4 gap-6">
+                                <!-- 16 MACs -->
+                            </div>
+                            <!-- Data Entrance Labels -->
+                            <div class="absolute -left-12 top-1/2 -translate-y-1/2 flex flex-col gap-10 text-[8px] font-bold text-blue-400">
+                                <span>ROW 0</span><span>ROW 1</span><span>ROW 2</span><span>ROW 3</span>
+                            </div>
+                            <div class="absolute -top-8 left-1/2 -translate-x-1/2 flex gap-10 text-[8px] font-bold text-pink-400">
+                                <span>COL 0</span><span>COL 1</span><span>COL 2</span><span>COL 3</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Narrative Card -->
+                    <div class="mt-8 p-5 bg-slate-900/80 rounded-lg border border-slate-700">
+                        <div class="flex gap-5 items-start">
+                            <div id="hwIcon" class="p-3 bg-blue-500/10 rounded-xl text-blue-400 border border-blue-500/20">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </div>
+                            <div>
+                                <h4 id="explainerTitle" class="text-sm font-bold text-white mb-1">CUDA Core Parallelism</h4>
+                                <p id="explainerDesc" class="text-xs text-slate-400 leading-relaxed max-w-2xl">
+                                    A warp of 32 threads executes the same instruction across different scalar data. Here, we show 4 threads calculating 4 elements of the result tile. Each thread must fetch its own operands, putting high pressure on the register file.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- In-depth Internal View -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                        <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-4 tracking-widest">The MMA Data Path</h3>
+                        <div class="fused-unit space-y-3">
+                            <div class="flex justify-between px-4 text-[9px] mono">
+                                <span class="text-blue-400">FP16 Input</span>
+                                <span class="text-pink-400">FP16 Input</span>
+                            </div>
+                            <div class="text-xs font-bold py-2 border-y border-slate-700">Internal FMA Multiplier</div>
+                            <div class="flex justify-center items-center gap-2">
+                                <div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                                <span class="text-[10px] text-emerald-400 font-bold uppercase">FP32 Accumulation Stage</span>
+                            </div>
+                            <div class="text-[9px] text-slate-500 italic">Rounding happens once at the final output</div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                        <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-4 tracking-widest">Architectural Advantage</h3>
+                        <p class="text-[11px] text-slate-400 leading-relaxed">
+                            Tensor Cores are specialized for <b>Mixed-Precision</b>. By using $FP16$ for the large weight matrices and $FP32$ for the accumulation, the GPU gains the speed of half-precision without the instability of cumulative rounding errors found in pure 16-bit math.
+                        </p>
+                        <div class="mt-4 p-3 bg-slate-800/50 rounded-lg">
+                            <div class="flex justify-between text-[9px] mono">
+                                <span>Throughput Speedup:</span>
+                                <span class="text-emerald-400">Up to 16x</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            mode: 'cuda',
+            stepIdx: 0,
+            subStep: 0, // 0: Select Source, 1: Execute/Flow
+            isPlaying: false,
+            interval: null,
+            isAnimating: false
+        };
+
+        const els = {
+            mA: document.getElementById('matrixA'),
+            mB: document.getElementById('matrixB'),
+            mRes: document.getElementById('matrixRes'),
+            systolicGrid: document.getElementById('systolicGrid'),
+            hwView: document.getElementById('hwView'),
+            modeCUDA: document.getElementById('modeCUDA'),
+            modeTensor: document.getElementById('modeTensor'),
+            playBtn: document.getElementById('playBtn'),
+            btnText: document.getElementById('btnText'),
+            explTitle: document.getElementById('explainerTitle'),
+            explDesc: document.getElementById('explainerDesc'),
+            statMem: document.getElementById('statMem'),
+            statEff: document.getElementById('statEff'),
+            efficiencyBar: document.getElementById('efficiencyBar'),
+            hwIcon: document.getElementById('hwIcon'),
+            stepBtn: document.getElementById('stepBtn'),
+            resetBtn: document.getElementById('resetBtn'),
+            instrLabel: document.getElementById('instructionLabel')
+        };
+
+        function initMatrices() {
+            els.mA.innerHTML = els.mB.innerHTML = els.mRes.innerHTML = '';
+            for (let i = 0; i < 16; i++) {
+                els.mA.appendChild(createCell('cell-a', (Math.random() * 2 - 1).toFixed(1)));
+                els.mB.appendChild(createCell('cell-b', (Math.random() * 2 - 1).toFixed(1)));
+                els.mRes.appendChild(createCell('cell-c', '0.0'));
+            }
+            initSystolic();
+        }
+
+        function initSystolic() {
+            els.systolicGrid.innerHTML = '';
+            for (let i = 0; i < 16; i++) {
+                const mac = document.createElement('div');
+                mac.className = 'mac-unit';
+                mac.id = `mac-${i}`;
+                mac.innerHTML = `<span class="opacity-30 text-[7px]">MMA</span><span class="mono text-[8px] mt-1 text-emerald-500">0.0</span>`;
+                els.systolicGrid.appendChild(mac);
+            }
+        }
+
+        function createCell(cls, val) {
+            const div = document.createElement('div');
+            div.className = `cell ${cls}`;
+            div.textContent = val;
+            return div;
+        }
+
+        function clearHighlights() {
+            document.querySelectorAll('.cell').forEach(c => c.classList.remove('highlight-a', 'highlight-b', 'highlight-res'));
+            document.querySelectorAll('.mac-unit').forEach(m => m.classList.remove('mac-active'));
+        }
+
+        function updateUI() {
+            if (state.mode === 'cuda') {
+                els.modeCUDA.classList.add('btn-active');
+                els.modeTensor.classList.remove('btn-active');
+                els.hwView.classList.add('hidden');
+                els.explTitle.textContent = "CUDA Warp Parallelism";
+                els.explDesc.textContent = "Threads in a warp share the same instruction. We show 4 threads calculating 4 elements. Each thread must fetch its own operands from the register file for every step, causing high energy consumption.";
+                els.statMem.textContent = "128 fetches";
+                els.statEff.textContent = "1.0x";
+                els.efficiencyBar.style.width = "10%";
+                els.instrLabel.textContent = "Instruction: $FFMA.FP32$";
+            } else {
+                els.modeCUDA.classList.remove('btn-active');
+                els.modeTensor.classList.add('btn-active');
+                els.hwView.classList.remove('hidden');
+                els.explTitle.textContent = "Tensor Core MMA Unit";
+                els.explDesc.textContent = "A specialized hardware logic block consuming a $4 \\times 4$ tile. The systolic wavefront reuses data across nodes, fetching only 32 elements from the register file to perform 64 math operations.";
+                els.statMem.textContent = "32 fetches (Tile)";
+                els.statEff.textContent = "12.8x";
+                els.efficiencyBar.style.width = "100%";
+                els.instrLabel.textContent = "Instruction: $HMMA.16.8.16$";
+            }
+            if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+                MathJax.typesetPromise();
+            }
+            clearHighlights();
+        }
+
+        function createParticle(color, startX, startY, endX, endY) {
+            const p = document.createElement('div');
+            p.className = 'data-particle';
+            p.style.backgroundColor = color;
+            const scrollX = window.scrollX || window.pageXOffset;
+            const scrollY = window.scrollY || window.pageYOffset;
+            p.style.left = (startX + scrollX) + 'px';
+            p.style.top = (startY + scrollY) + 'px';
+            p.style.color = color;
+            document.body.appendChild(p);
+
+            requestAnimationFrame(() => {
+                p.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+                p.style.left = (endX + scrollX) + 'px';
+                p.style.top = (endY + scrollY) + 'px';
+                p.style.opacity = '0';
+                setTimeout(() => p.remove(), 700);
+            });
+        }
+
+        async function step() {
+            if (state.isAnimating) return;
+            const size = 4;
+
+            if (state.mode === 'cuda') {
+                if (state.stepIdx >= size) { pause(); return; }
+                clearHighlights();
+                const row = state.stepIdx;
+                for (let col = 0; col < size; col++) {
+                    const resIdx = row * size + col;
+                    for (let k = 0; k < size; k++) {
+                        const cellA = els.mA.children[row * size + k];
+                        const cellB = els.mB.children[k * size + col];
+                        if (cellA) cellA.classList.add('highlight-a');
+                        if (cellB) cellB.classList.add('highlight-b');
+                    }
+                    const target = els.mRes.children[resIdx];
+                    if (target) {
+                        target.classList.add('highlight-res');
+                        target.textContent = (Math.random() * 5).toFixed(1);
+                    }
+                }
+                state.stepIdx++;
+            } else {
+                state.isAnimating = true;
+                els.hwIcon.classList.add('core-active');
+
+                if (state.stepIdx < 7) {
+                    const cycle = state.stepIdx;
+                    if (state.subStep === 0) {
+                        clearHighlights();
+                        els.explTitle.textContent = `MMA Cycle ${cycle + 1}: Operand Dispatch`;
+                        els.explDesc.textContent = "Data is selected from the Matrix A and B register file slice to feed the systolic wavefront.";
+                        
+                        // Realistic systolic wavefront selection
+                        for (let r = 0; r < 4; r++) {
+                            const c = cycle - r;
+                            if (c >= 0 && c < 4) {
+                                // For a systolic array, the k-index data is streamed. 
+                                // We'll highlight the k-index that "meets" at this node.
+                                const kIdx = cycle % 4; 
+                                const cellA = els.mA.children[r * 4 + kIdx];
+                                const cellB = els.mB.children[kIdx * 4 + c];
+                                if (cellA) cellA.classList.add('highlight-a');
+                                if (cellB) cellB.classList.add('highlight-b');
+                            }
+                        }
+                        state.subStep = 1;
+                    } else {
+                        els.explTitle.textContent = `MMA Cycle ${cycle + 1}: Systolic Wavefront`;
+                        els.explDesc.textContent = "Data 'flows' through the wired grid. Each MAC node performs a dot-product partial sum without rounding.";
+
+                        for (let r = 0; r < 4; r++) {
+                            const c = cycle - r;
+                            if (c >= 0 && c < 4) {
+                                const mac = document.getElementById(`mac-${r * 4 + c}`);
+                                if (!mac) continue;
+                                const macRect = mac.getBoundingClientRect();
+                                const kIdx = cycle % 4;
+                                const sourceA = els.mA.children[r * 4 + kIdx];
+                                const sourceB = els.mB.children[kIdx * 4 + c];
+                                if (sourceA && sourceB) {
+                                    const rectA = sourceA.getBoundingClientRect();
+                                    const rectB = sourceB.getBoundingClientRect();
+                                    createParticle('#60a5fa', rectA.left, rectA.top, macRect.left, macRect.top);
+                                    createParticle('#f472b6', rectB.left, rectB.top, macRect.left, macRect.top);
+                                }
+                                mac.classList.add('mac-active');
+                                mac.querySelector('.mono').textContent = (Math.random() * 8).toFixed(1);
+                            }
+                        }
+                        state.subStep = 0;
+                        state.stepIdx++;
+                    }
+                } else if (state.stepIdx === 7) {
+                    els.explTitle.textContent = "MMA Instruction Committed";
+                    els.explDesc.textContent = "64 operations completed. Result written to the FP32 accumulator. Rounding occurred once at this exit stage.";
+                    document.querySelectorAll('.cell-c').forEach(c => {
+                        c.classList.add('highlight-res');
+                        c.textContent = (Math.random() * 10).toFixed(1);
+                    });
+                    state.stepIdx++;
+                    pause(); 
+                } else {
+                    state.stepIdx = 0;
+                    state.subStep = 0;
+                    clearHighlights();
+                    step();
+                }
+
+                if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+                    MathJax.typesetPromise();
+                }
+                await sleep(400); 
+                state.isAnimating = false;
+                els.hwIcon.classList.remove('core-active');
+            }
+        }
+
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        function play() {
+            if (state.isPlaying) return pause();
+            state.isPlaying = true;
+            els.btnText.textContent = "Stop Execution";
+            state.interval = setInterval(step, state.mode === 'cuda' ? 800 : 1200);
+            step(); 
+        }
+
+        function pause() {
+            state.isPlaying = false;
+            clearInterval(state.interval);
+            els.btnText.textContent = "Compute Matrix";
+        }
+
+        function reset() {
+            pause();
+            state.stepIdx = 0;
+            state.subStep = 0;
+            state.isAnimating = false;
+            initMatrices();
+            updateUI();
+        }
+
+        els.modeCUDA.onclick = () => { state.mode = 'cuda'; reset(); };
+        els.modeTensor.onclick = () => { state.mode = 'tensor'; reset(); };
+        els.playBtn.onclick = play;
+        els.resetBtn.onclick = reset;
+        els.stepBtn.onclick = () => { if (state.isPlaying) pause(); step(); };
+
+        window.onload = () => {
+            initMatrices();
+            updateUI();
+        };
+    </script>
+</body>
+</html>

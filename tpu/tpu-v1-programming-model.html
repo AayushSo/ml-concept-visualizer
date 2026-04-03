@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TPU v1 Programming Model</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #ffffff; /* White */
+            color: #334155; /* Slate 700 */
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        .hardware-block {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid #94a3b8; /* Slate 400 - Darkened for better contrast */
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #334155; /* Slate 700 - Darkened text */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+        }
+
+        .hardware-block.active {
+            border-color: #3b82f6; /* Blue 500 */
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+            color: #0f172a; /* Slate 900 */
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .hardware-block.mxu {
+            background: repeating-linear-gradient(
+                45deg,
+                rgba(255, 255, 255, 0.9),
+                rgba(255, 255, 255, 0.9) 10px,
+                rgba(226, 232, 240, 0.9) 10px, /* Slate 200 - Darkened stripes for visibility */
+                rgba(226, 232, 240, 0.9) 20px
+            );
+        }
+
+        .hardware-block.mxu.active {
+            border-color: #ec4899; /* Pink 500 */
+            box-shadow: 0 0 20px rgba(236, 72, 153, 0.4);
+        }
+
+        .svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .data-path {
+            fill: none;
+            stroke: #94a3b8; /* Slate 400 - Darkened paths for white bg */
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: stroke 0.3s ease;
+        }
+
+        .data-path.active {
+            stroke: #3b82f6;
+            stroke-width: 6;
+        }
+
+        .data-path.active-mxu {
+            stroke: #ec4899;
+            stroke-width: 6;
+        }
+
+        /* Flow animation */
+        .flow-particle {
+            fill: #60a5fa;
+            opacity: 0;
+        }
+
+        .flow-particle.active {
+            opacity: 1;
+        }
+
+        .flow-particle.mxu-color {
+            fill: #f472b6;
+        }
+
+        /* Control Panel Styles */
+        .instruction-btn {
+            transition: all 0.2s;
+        }
+        .instruction-btn:hover {
+            background-color: #f8fafc; /* Slate 50 */
+            transform: translateX(4px);
+        }
+        .instruction-btn.active {
+            background-color: #2563eb;
+            color: white;
+            border-left: 4px solid #60a5fa;
+            border-color: #2563eb;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col md:flex-row bg-white">
+
+    <!-- Left Sidebar: Controls & Explanation -->
+    <div class="w-full md:w-1/3 bg-slate-50 border-r border-slate-200 flex flex-col h-full overflow-y-auto z-20 shadow-xl">
+        <div class="p-6 border-b border-slate-200">
+            <h1 class="text-2xl font-bold text-slate-900 mb-2">TPU v1 Programming Model</h1>
+            <h2 class="text-sm text-blue-600 font-semibold mb-4">CISC Instructions & Execution Pipeline</h2>
+            <div class="text-sm text-slate-600 space-y-3">
+                <p>
+                    <strong>CISC (Complex Instruction Set Computer):</strong> Unlike typical CPUs where instructions are simple, 
+                    the TPU operates at a higher abstraction level. A single TPU instruction is extremely powerful and can trigger operations taking thousands of clock cycles.
+                </p>
+                <p>
+                    Because of this complexity, the average <strong>CPI (Cycles Per Instruction)</strong> is very high (typically 10 to 20, but can be much higher for large matrix operations). 
+                    This reduces the bottleneck of constantly fetching instructions, allowing the chip to focus purely on math.
+                </p>
+                <!-- Bidirectional Flow Note -->
+                <div class="mt-4 pt-4 border-t border-slate-200">
+                    <span class="inline-flex items-center text-blue-600 font-bold uppercase text-[10px] tracking-widest mb-1">Data Flow Note</span>
+                    <p class="text-xs leading-relaxed">
+                        <strong>Bidirectional Arrows:</strong> Double connections (e.g., between CPU and PCIe) represent bidirectional data flow. This allows the TPU to both receive input data/instructions and send finished inferences back to the Host.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 flex-grow flex flex-col">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">Instructions</h3>
+            <div class="flex flex-col space-y-2 mb-6" id="instruction-buttons">
+                <!-- Buttons injected by JS -->
+            </div>
+
+            <div class="bg-white rounded-lg p-5 border border-slate-200 flex-grow">
+                <h4 id="detail-title" class="text-lg font-bold text-blue-600 mb-2">Select an instruction</h4>
+                <div id="detail-content" class="text-sm text-slate-600 space-y-2">
+                    Click an instruction above to see its details and animate the data flow.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Area: Interactive Diagram -->
+    <div class="w-full md:w-2/3 relative bg-white flex flex-col items-center justify-start min-h-[600px] overflow-hidden pt-6">
+        
+        <!-- Instruction Format Visualizer (Overlay Container at Top) -->
+        <div class="h-20 w-full flex justify-center items-start z-50 mb-4">
+            <div id="instruction-format-overlay" class="w-[90%] max-w-[700px] bg-white/95 backdrop-blur-sm border-2 border-slate-300 rounded-lg shadow-[0_10px_30px_rgba(0,0,0,0.1)] transition-all duration-300 opacity-0 -translate-y-4 pointer-events-none overflow-hidden flex flex-col">
+                <div id="instruction-format-title" class="bg-slate-100 text-xs text-center py-1.5 font-bold text-slate-700 border-b border-slate-200 uppercase tracking-wider">
+                    CISC Instruction Format
+                </div>
+                <div id="instruction-format-fields" class="flex w-full text-center text-xs h-14 shadow-inner">
+                    <!-- Dynamic fields go here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Scaling container to maintain aspect ratio for absolute positioning -->
+        <div class="relative w-[800px] h-[600px] transform scale-75 lg:scale-100 origin-top">
+            
+            <!-- SVG Paths for Data Flow -->
+            <svg class="svg-layer">
+                <defs>
+                    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
+                    </marker>
+                    <marker id="arrow-pink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="#ec4899" />
+                    </marker>
+                </defs>
+
+                <!-- Read Host Memory Path -->
+                <path id="path-read-host" class="data-path" d="M 120 290 L 190 290 M 270 260 L 340 260" />
+                
+                <!-- Read Weights Path -->
+                <path id="path-read-weights" class="data-path" d="M 710 70 L 710 90 M 710 160 L 710 180" />
+                
+                <!-- Matrix Multiply Path -->
+                <path id="path-matrix" class="data-path" d="M 470 260 L 490 260 M 590 260 L 640 260 M 710 340 L 710 360" />
+                
+                <!-- Activate Path -->
+                <path id="path-activate" class="data-path" d="M 710 410 L 710 430 M 640 460 L 410 460 L 410 350" />
+                
+                <!-- Write Host Memory Path -->
+                <path id="path-write-host" class="data-path" d="M 340 270 L 270 270 M 190 300 L 120 300" />
+
+                <!-- Particles for animation -->
+                <circle id="particle-read-host-1" class="flow-particle" r="6">
+                    <animateMotion dur="1s" repeatCount="indefinite">
+                        <mpath href="#path-read-host"/>
+                    </animateMotion>
+                </circle>
+
+                <circle id="particle-read-weights-1" class="flow-particle mxu-color" r="6">
+                    <animateMotion dur="1s" repeatCount="indefinite">
+                        <mpath href="#path-read-weights"/>
+                    </animateMotion>
+                </circle>
+
+                <circle id="particle-matrix-1" class="flow-particle mxu-color" r="6">
+                    <animateMotion dur="1.5s" repeatCount="indefinite">
+                        <mpath href="#path-matrix"/>
+                    </animateMotion>
+                </circle>
+
+                <circle id="particle-activate-1" class="flow-particle" r="6">
+                    <animateMotion dur="1.5s" repeatCount="indefinite">
+                        <mpath href="#path-activate"/>
+                    </animateMotion>
+                </circle>
+
+                <circle id="particle-write-host-1" class="flow-particle" r="6">
+                    <animateMotion dur="1s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear">
+                        <mpath href="#path-write-host"/>
+                    </animateMotion>
+                </circle>
+
+            </svg>
+
+            <!-- Hardware Blocks -->
+            <div id="block-cpu" class="hardware-block flex-col" style="left: 40px; top: 250px; width: 80px; height: 80px; border-radius: 50%;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-1"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+                CPU
+            </div>
+
+            <div id="block-pcie" class="hardware-block" style="left: 190px; top: 150px; width: 80px; height: 300px;">
+                <div class="-rotate-90 whitespace-nowrap">PCIe Gen3 x16 <br> Host Interface</div>
+            </div>
+
+            <div id="block-instr" class="hardware-block flex-col" style="left: 350px; top: 460px; width: 80px; height: 100px;">
+                <div class="text-xs text-slate-500 mb-1 font-bold">Instr Buffer</div>
+                <div class="w-10 h-14 border border-slate-400 rounded flex flex-col justify-between p-1">
+                    <div class="h-1 bg-slate-400 w-full"></div>
+                    <div class="h-1 bg-slate-400 w-full"></div>
+                    <div class="h-1 bg-slate-400 w-full"></div>
+                    <div class="h-1 bg-slate-400 w-full"></div>
+                </div>
+            </div>
+
+            <div id="block-ub" class="hardware-block" style="left: 340px; top: 180px; width: 130px; height: 170px;">
+                <div>Unified Buffer<br><span class="text-xs font-normal text-slate-600">(Local Activation Storage)</span></div>
+            </div>
+
+            <div id="block-sys" class="hardware-block" style="left: 490px; top: 180px; width: 100px; height: 170px;">
+                <div>Systolic<br>Data<br>Setup</div>
+            </div>
+
+            <div id="block-ddr3" class="hardware-block bg-emerald-100 border-emerald-400 text-emerald-900" style="left: 640px; top: 30px; width: 140px; height: 40px;">
+                DDR3 DRAM
+            </div>
+
+            <div id="block-wfifo" class="hardware-block" style="left: 640px; top: 90px; width: 140px; height: 70px;">
+                Weight FIFO<br><span class="text-xs font-normal text-slate-600">(Weight Fetcher)</span>
+            </div>
+
+            <div id="block-mxu" class="hardware-block mxu" style="left: 640px; top: 180px; width: 140px; height: 160px;">
+                <div class="bg-white/95 p-2 rounded shadow-sm">
+                    Matrix Multiply Unit<br>
+                    <span class="text-xs text-pink-600 font-mono font-bold">(64K / cycle)</span>
+                </div>
+            </div>
+
+            <div id="block-acc" class="hardware-block" style="left: 640px; top: 360px; width: 140px; height: 50px;">
+                Accumulators
+            </div>
+
+            <div id="block-act" class="hardware-block" style="left: 640px; top: 430px; width: 140px; height: 60px;">
+                Activate / Pool<br><span class="text-xs font-normal text-slate-500">(ReLU, Sigmoid)</span>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const instructions = [
+            {
+                id: 'read_host',
+                name: 'Read_Host_Memory',
+                blocks: ['block-cpu', 'block-pcie', 'block-ub'],
+                pathId: 'path-read-host',
+                particleId: 'particle-read-host-1',
+                desc: [
+                    "<strong>Purpose:</strong> Initial step to fetch data.",
+                    "Reads activation data (input features) from the CPU host memory over the PCIe bus.",
+                    "Writes this data into the TPU's internal <strong>Unified Buffer</strong> (Local Activation Storage).",
+                    "Bandwidth: Up to 14 GiB/s over PCIe Gen3 x16."
+                ]
+            },
+            {
+                id: 'read_weights',
+                name: 'Read_Weights',
+                blocks: ['block-ddr3', 'block-wfifo', 'block-mxu'],
+                pathId: 'path-read-weights',
+                particleId: 'particle-read-weights-1',
+                desc: [
+                    "<strong>Purpose:</strong> Load model parameters.",
+                    "Reads weights from the external <strong>DDR3 Weight Memory</strong> (at 30 GiB/s).",
+                    "Loads them into the <strong>Weight FIFO</strong> (Weight Fetcher).",
+                    "The FIFO pre-loads these weights into the Matrix Unit so they are ready before the activations arrive."
+                ]
+            },
+            {
+                id: 'matrix_mult',
+                name: 'MatrixMultiply / Convolve',
+                blocks: ['block-ub', 'block-sys', 'block-mxu', 'block-acc'],
+                pathId: 'path-matrix',
+                particleId: 'particle-matrix-1',
+                isMxu: true,
+                desc: [
+                    "<strong>Purpose:</strong> The core computation engine.",
+                    "Uses data from the <strong>Unified Buffer</strong>, formatted by the <strong>Systolic Data Setup</strong>.",
+                    "Takes a variable-sized <code>B &times; 256</code> input (where B is batch size).",
+                    "Multiplies it by a <code>256 &times; 256</code> constant weight input already in the MXU.",
+                    "Produces a <code>B &times; 256</code> output sent to the <strong>Accumulators</strong>.",
+                    "<em>CISC Magic:</em> This single instruction requires <strong>B pipelined cycles</strong> to complete. If B is large, this one instruction does thousands of operations!"
+                ],
+                formatFieldsHtml: `
+                    <div class="flex-[3] bg-indigo-50 border-r border-indigo-200 p-2 flex flex-col justify-center transition-colors hover:bg-indigo-100">
+                        <span class="font-bold text-indigo-900">Opcode & Flags</span>
+                        <span class="text-[10px] text-indigo-600 font-mono mt-0.5">~3 Bytes</span>
+                    </div>
+                    <div class="flex-[3] bg-blue-50 border-r border-blue-200 p-2 flex flex-col justify-center transition-colors hover:bg-blue-100">
+                        <span class="font-bold text-blue-900">Unified Buffer Addr</span>
+                        <span class="text-[10px] text-blue-600 font-mono mt-0.5">3 Bytes</span>
+                    </div>
+                    <div class="flex-[2] bg-cyan-50 border-r border-cyan-200 p-2 flex flex-col justify-center transition-colors hover:bg-cyan-100">
+                        <span class="font-bold text-cyan-900">Accumulator Addr</span>
+                        <span class="text-[10px] text-cyan-600 font-mono mt-0.5">2 Bytes</span>
+                    </div>
+                    <div class="flex-[4] bg-teal-50 p-2 flex flex-col justify-center transition-colors hover:bg-teal-100">
+                        <span class="font-bold text-teal-900">Length</span>
+                        <span class="text-[10px] text-teal-600 font-mono mt-0.5">2-4 Bytes</span>
+                    </div>
+                `,
+                extraHtml: `
+                    <div class="mt-4 p-3 bg-slate-50 rounded-md border border-slate-200">
+                        <h5 class="text-pink-600 font-semibold mb-2 text-sm border-b border-slate-200 pb-1">Instruction Format (12 Bytes)</h5>
+                        <table class="w-full text-xs text-left">
+                            <thead>
+                                <tr class="text-slate-500"><th class="pb-1">Field</th><th class="pb-1">Bytes</th></tr>
+                            </thead>
+                            <tbody class="text-slate-700">
+                                <tr><td class="py-1.5 border-t border-slate-200">Unified Buffer Address</td><td class="py-1.5 border-t border-slate-200">3</td></tr>
+                                <tr><td class="py-1.5 border-t border-slate-200">Accumulator Address</td><td class="py-1.5 border-t border-slate-200">2</td></tr>
+                                <tr><td class="py-1.5 border-t border-slate-200">Length</td><td class="py-1.5 border-t border-slate-200">2-4</td></tr>
+                                <tr><td class="py-1.5 border-t border-slate-200">Opcode and Flag</td><td class="py-1.5 border-t border-slate-200">The rest</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `
+            },
+            {
+                id: 'activate',
+                name: 'Activate',
+                blocks: ['block-acc', 'block-act', 'block-ub'],
+                pathId: 'path-activate',
+                particleId: 'particle-activate-1',
+                desc: [
+                    "<strong>Purpose:</strong> Non-linearities and Pooling.",
+                    "Executes the nonlinear function of the artificial neuron (e.g., ReLU, Sigmoid).",
+                    "Inputs are sourced directly from the <strong>Accumulators</strong>.",
+                    "Can also perform pooling operations for convolutions.",
+                    "The final processed results are written back to the <strong>Unified Buffer</strong>."
+                ]
+            },
+            {
+                id: 'write_host',
+                name: 'Write_Host_Memory',
+                blocks: ['block-ub', 'block-pcie', 'block-cpu'],
+                pathId: 'path-write-host',
+                particleId: 'particle-write-host-1',
+                desc: [
+                    "<strong>Purpose:</strong> Return results to CPU.",
+                    "Writes the final computed data/inferences from the <strong>Unified Buffer</strong>.",
+                    "Sends it back across the PCIe bus to the <strong>CPU host memory</strong>.",
+                    "Completes the TPU execution pipeline."
+                ]
+            }
+        ];
+
+        const btnContainer = document.getElementById('instruction-buttons');
+        const detailTitle = document.getElementById('detail-title');
+        const detailContent = document.getElementById('detail-content');
+
+        // Initialize UI
+        function init() {
+            instructions.forEach((inst, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'instruction-btn w-full text-left px-4 py-3 rounded-lg text-slate-700 font-medium border border-slate-200 bg-white flex justify-between items-center';
+                btn.innerHTML = `
+                    <span>${index + 1}. ${inst.name}</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                `;
+                btn.onclick = () => selectInstruction(inst.id, btn);
+                btnContainer.appendChild(btn);
+            });
+        }
+
+        function resetAll() {
+            // Reset hardware blocks
+            document.querySelectorAll('.hardware-block').forEach(el => {
+                el.classList.remove('active');
+            });
+            // Reset paths
+            document.querySelectorAll('.data-path').forEach(el => {
+                el.classList.remove('active', 'active-mxu');
+                // Remove markers
+                el.removeAttribute('marker-end');
+                el.removeAttribute('marker-start');
+            });
+            // Reset particles
+            document.querySelectorAll('.flow-particle').forEach(el => {
+                el.classList.remove('active');
+            });
+            // Reset buttons
+            document.querySelectorAll('.instruction-btn').forEach(el => {
+                el.classList.remove('active');
+            });
+            // Reset instruction format overlay
+            const formatOverlay = document.getElementById('instruction-format-overlay');
+            if (formatOverlay) {
+                formatOverlay.classList.remove('opacity-100', 'translate-y-0');
+                formatOverlay.classList.add('opacity-0', '-translate-y-4');
+            }
+        }
+
+        function selectInstruction(id, btnElement) {
+            resetAll();
+            
+            const inst = instructions.find(i => i.id === id);
+            if (!inst) return;
+
+            // Highlight button
+            btnElement.classList.add('active');
+
+            // Update details panel
+            detailTitle.textContent = inst.name;
+            detailTitle.className = `text-lg font-bold mb-3 ${inst.isMxu ? 'text-pink-600' : 'text-blue-600'}`;
+            
+            let listHtml = '<ul class="list-disc pl-5 space-y-2">';
+            inst.desc.forEach(item => {
+                listHtml += `<li>${item}</li>`;
+            });
+            listHtml += '</ul>';
+            
+            if (inst.extraHtml) {
+                listHtml += inst.extraHtml;
+            }
+            
+            detailContent.innerHTML = listHtml;
+
+            // Highlight hardware blocks
+            inst.blocks.forEach(blockId => {
+                document.getElementById(blockId).classList.add('active');
+            });
+
+            // Highlight path and add marker
+            const pathEl = document.getElementById(inst.pathId);
+            pathEl.classList.add(inst.isMxu ? 'active-mxu' : 'active');
+            
+            // For Write_Host, the line is drawn L to R, so we need marker-start for reverse flow
+            if(id === 'write_host') {
+                pathEl.setAttribute('marker-start', 'url(#arrow-blue)');
+            } else {
+                pathEl.setAttribute('marker-end', inst.isMxu ? 'url(#arrow-pink)' : 'url(#arrow-blue)');
+            }
+
+            // Show animation particle
+            document.getElementById(inst.particleId).classList.add('active');
+
+            // Handle Instruction Format Overlay
+            const formatOverlay = document.getElementById('instruction-format-overlay');
+            const formatFields = document.getElementById('instruction-format-fields');
+            const formatTitle = document.getElementById('instruction-format-title');
+
+            if (inst.formatFieldsHtml) {
+                formatFields.innerHTML = inst.formatFieldsHtml;
+                formatTitle.textContent = `${inst.name} Format (12 Bytes)`;
+                formatOverlay.classList.remove('opacity-0', '-translate-y-4');
+                formatOverlay.classList.add('opacity-100', 'translate-y-0');
+            }
+        }
+
+        // Run init
+        init();
+
+        // Optional: Auto-select first instruction after a tiny delay for visual effect
+        setTimeout(() => {
+            const firstBtn = btnContainer.querySelector('button');
+            if(firstBtn) selectInstruction(instructions[0].id, firstBtn);
+        }, 500);
+
+    </script>
+</body>
+</html>

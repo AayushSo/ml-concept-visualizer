@@ -123,10 +123,14 @@
 
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-2">Workload Type</label>
-                        <select id="workloadType" class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                            <option value="kernel">Dominant Kernel (tE > tT)</option>
-                            <option value="transfer">Dominant Transfer (tT > tE)</option>
-                        </select>
+                        <div class="flex rounded-md overflow-hidden shadow-sm">
+                            <button id="workloadKernel" type="button" class="flex-1 px-4 py-2 bg-slate-700 text-slate-300 text-sm hover:bg-slate-600 transition-colors btn-active">
+                                Dominant Kernel
+                            </button>
+                            <button id="workloadTransfer" type="button" class="flex-1 px-4 py-2 bg-slate-700 text-slate-300 text-sm hover:bg-slate-600 transition-colors">
+                                Dominant Transfer
+                            </button>
+                        </div>
                     </div>
 
                     <div class="pt-4 flex flex-col gap-3">
@@ -247,7 +251,8 @@
             modeAsync: document.getElementById('modeAsync'),
             nStreams: document.getElementById('nStreams'),
             nStreamsVal: document.getElementById('nStreamsVal'),
-            workloadType: document.getElementById('workloadType'),
+            workloadKernel: document.getElementById('workloadKernel'),
+            workloadTransfer: document.getElementById('workloadTransfer'),
             playBtn: document.getElementById('playBtn'),
             backBtn: document.getElementById('backBtn'),
             nextBtn: document.getElementById('nextBtn'),
@@ -265,6 +270,8 @@
         function updateUI() {
             state.nStreams = parseInt(els.nStreams.value);
             els.nStreamsVal.textContent = state.nStreams;
+            els.workloadKernel.classList.toggle('btn-active', state.workload === 'kernel');
+            els.workloadTransfer.classList.toggle('btn-active', state.workload === 'transfer');
             
             if (state.mode === 'sync') {
                 els.modeSync.classList.add('btn-active');
@@ -305,18 +312,32 @@
                 const n = state.nStreams;
                 const cT = tT / n;
                 const cE = tE / n;
-                state.totalDuration = (state.workload === 'kernel') ? (tE + cT) : (tT + cE);
+                let maxEnd = 0;
 
                 for (let i = 0; i < n; i++) {
                     const row = createRow(`Stream ${i}`);
                     const startT = i * cT;
                     const endT = startT + cT;
-                    const startE = Math.max(endT, i * Math.max(cT, cE) + cT); // Simplified overlap logic for viz
-                    
+                    let startE;
+
+                    if (state.workload === 'kernel') {
+                        // Transfer engine stays ahead of the compute bottleneck, so copies
+                        // cluster early while kernels queue up behind the first launch.
+                        startE = cT + (i * cE);
+                    } else {
+                        // Copy engine is the bottleneck, so each short kernel launches as
+                        // soon as its transfer finishes and then quickly gets out of the way.
+                        startE = endT;
+                    }
+
+                    maxEnd = Math.max(maxEnd, endT, startE + cE);
+
                     row.appendChild(createBar(startT, cT, 'bar-transfer', `S${i} H2D`));
                     row.appendChild(createBar(startE, cE, 'bar-execute', `S${i} Kern`));
                     els.rows.appendChild(row);
                 }
+
+                state.totalDuration = maxEnd;
             }
         }
 
@@ -411,7 +432,8 @@
         els.modeSync.onclick = () => { state.mode = 'sync'; reset(); };
         els.modeAsync.onclick = () => { state.mode = 'async'; reset(); };
         els.nStreams.oninput = () => { updateUI(); };
-        els.workloadType.onchange = () => { reset(); };
+        els.workloadKernel.onclick = () => { state.workload = 'kernel'; reset(); };
+        els.workloadTransfer.onclick = () => { state.workload = 'transfer'; reset(); };
         els.playBtn.onclick = play;
         els.nextBtn.onclick = () => { pause(); state.time = Math.min(state.totalDuration, state.time + CONFIG.STEP_INCREMENT); updatePlayback(); };
         els.backBtn.onclick = () => { pause(); state.time = Math.max(0, state.time - CONFIG.STEP_INCREMENT); updatePlayback(); };

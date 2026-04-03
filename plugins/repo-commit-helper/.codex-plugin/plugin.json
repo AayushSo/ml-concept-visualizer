@@ -1,0 +1,39 @@
+{
+  "name": "repo-commit-helper",
+  "version": "0.1.0",
+  "description": "Repo-local commit helper for ml-concept-visualizer.",
+  "author": {
+    "name": "Arash Saifhashemi",
+    "url": "https://github.com/ourarash"
+  },
+  "homepage": "https://github.com/ourarash/ml-concept-visualizer",
+  "repository": "https://github.com/ourarash/ml-concept-visualizer",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "commit",
+    "conventional-commits",
+    "repo-workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Repo Commit Helper",
+    "shortDescription": "Draft repo-aware Conventional Commit messages",
+    "longDescription": "Analyzes staged changes deeply, asks whether to stage all current files when nothing is staged, and prepares or helps execute conventional commits for this repo.",
+    "developerName": "Arash Saifhashemi",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ourarash/ml-concept-visualizer",
+    "privacyPolicyURL": "https://github.com/ourarash/ml-concept-visualizer",
+    "termsOfServiceURL": "https://github.com/ourarash/ml-concept-visualizer",
+    "defaultPrompt": [
+      "Use $repo-commit-helper to prepare a commit for the current repo.",
+      "Use $repo-commit-helper to draft a Conventional Commit from staged changes.",
+      "Use $repo-commit-helper to commit current work and ask to stage all if nothing is staged."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

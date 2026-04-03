@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CUDA Memory Coalescing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Optional custom scrollbar for code snippet */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200 font-sans min-h-screen flex flex-col items-center justify-center p-6">
+
+    <!-- Header -->
+    <div class="max-w-[1000px] w-full flex justify-between items-end mb-6">
+        <div>
+            <h1 class="text-3xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="database" class="text-blue-400 w-8 h-8"></i>
+                CUDA Memory Coalescing
+            </h1>
+            <p class="text-slate-400 mt-2 max-w-2xl">
+                Simulate how CUDA thread access patterns map to hardware memory transactions.
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Canvas Area -->
+    <div class="relative bg-slate-900 rounded-xl shadow-2xl border border-slate-800 overflow-hidden shadow-black/50 w-full max-w-[1000px] aspect-[5/3]">
+        
+        <!-- Top Controls Overlay -->
+        <div class="absolute top-4 left-4 flex gap-2 z-10">
+            <button id="backBtn" class="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors" title="Previous Step">
+                <i data-lucide="skip-back" class="w-[18px] h-[18px]"></i>
+            </button>
+            <button id="playBtn" class="flex items-center gap-2 px-4 py-2 rounded-md font-semibold transition-colors bg-blue-600 hover:bg-blue-500 text-white">
+                <span id="playIconWrap" class="block"><i data-lucide="play" class="w-[18px] h-[18px]"></i></span>
+                <span id="pauseIconWrap" class="hidden"><i data-lucide="pause" class="w-[18px] h-[18px]"></i></span>
+                <span id="playText">Play</span>
+            </button>
+            <button id="nextBtn" class="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors" title="Next Step">
+                <i data-lucide="skip-forward" class="w-[18px] h-[18px]"></i>
+            </button>
+            <button id="resetBtn" class="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors ml-2" title="Reset Animation">
+                <i data-lucide="rotate-ccw" class="w-[18px] h-[18px]"></i>
+            </button>
+        </div>
+
+        <!-- Mode Toggle Overlay -->
+        <div class="absolute top-4 right-4 grid grid-cols-2 gap-2 bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700 z-10">
+            <button id="btn-coalesced" class="px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Coalesced
+            </button>
+            <button id="btn-unaligned" class="px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700">
+                <i data-lucide="align-right" class="w-3.5 h-3.5"></i> Unaligned
+            </button>
+            <button id="btn-uncoalesced" class="px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700">
+                <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Uncoalesced
+            </button>
+            <button id="btn-shared" class="px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700">
+                <i data-lucide="cpu" class="w-3.5 h-3.5"></i> Shared Mem Fix
+            </button>
+        </div>
+
+        <!-- Code Snippet Overlay -->
+        <div class="absolute right-4 top-36 w-72 bg-slate-950/90 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-10">
+            <div class="bg-slate-800/80 px-3 py-2 border-b border-slate-700 flex items-center gap-2">
+                <i data-lucide="code-2" class="w-3.5 h-3.5 text-slate-400"></i>
+                <span class="text-xs font-semibold text-slate-300 tracking-wide uppercase">Code Context</span>
+            </div>
+            <pre id="codeSnippet" class="p-4 text-xs font-mono text-emerald-300 leading-relaxed overflow-x-auto whitespace-pre-wrap"></pre>
+        </div>
+
+        <canvas id="vizCanvas" class="block"></canvas>
+
+        <!-- Bottom Info Bar Overlay -->
+        <div class="absolute bottom-0 w-full bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 flex justify-between items-center z-10">
+            <div class="flex items-center gap-3 w-1/2">
+                <i data-lucide="activity" class="text-blue-400"></i>
+                <span id="phaseText" class="font-mono text-sm tracking-wide text-blue-100">Ready. Press Play.</span>
+            </div>
+
+            <div class="flex gap-8 pr-4">
+                <div class="flex flex-col items-end">
+                    <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Cache Lines Fetched</span>
+                    <span id="statsCacheLines" class="text-2xl font-mono font-bold text-emerald-400">
+                        1 <span class="text-slate-500 text-sm">/ 8</span>
+                    </span>
+                </div>
+                <div class="flex flex-col items-end">
+                    <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Bandwidth Utilization</span>
+                    <span id="statsUtilization" class="text-2xl font-mono font-bold text-emerald-400">
+                        100%
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Constants
+        const NUM_THREADS = 8;
+        const MAT_SIZE = 8;
+        const CACHE_LINE_SIZE = 8;
+        const TOTAL_MEMORY = MAT_SIZE * MAT_SIZE;
+        const NUM_CACHE_LINES = TOTAL_MEMORY / CACHE_LINE_SIZE;
+
+        const COLORS = {
+            bg: '#0f172a', grid: '#334155', text: '#f8fafc', textDim: '#94a3b8',
+            thread: '#38bdf8', coalesced: '#4ade80', unaligned: '#fbbf24',
+            uncoalesced: '#f87171', shared: '#c084fc', wasted: '#7f1d1d',
+            cacheLine: '#1e293b', cacheLineBorder: '#475569', particle: '#ffffff'
+        };
+
+        const layout = {
+            width: 1000, height: 600,
+            threads: { x: 50, yStart: 120, spacing: 35 },
+            shared: { x: 200, y: 160, cellSize: 16 },
+            matrix: { x: 380, y: 120, cellSize: 32 },
+            memory: { x: 100, y: 480, cellWidth: 12, cellHeight: 30, blockSpacing: 8 }
+        };
+
+        // State variables
+        let mode = 'coalesced';
+        let isPlaying = false;
+        let progress = 0;
+        let currentPhase = 0;
+        let stats = { cacheLines: 1, utilization: 100 };
+        let requestRef;
+
+        // Canvas Setup
+        const canvas = document.getElementById('vizCanvas');
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = layout.width * dpr;
+        canvas.height = layout.height * dpr;
+        ctx.scale(dpr, dpr);
+        canvas.style.width = `${layout.width}px`;
+        canvas.style.height = `${layout.height}px`;
+
+        // Helper Functions
+        const easeInOutCubic = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const getThreadPos = (i) => ({ x: layout.threads.x, y: layout.threads.yStart + i * layout.threads.spacing });
+        const getMatrixPos = (row, col) => ({ x: layout.matrix.x + col * layout.matrix.cellSize, y: layout.matrix.y + row * layout.matrix.cellSize });
+        const getSharedPos = (row, col) => ({ x: layout.shared.x + col * layout.shared.cellSize, y: layout.shared.y + row * layout.shared.cellSize });
+        
+        const getMemoryPos = (index) => {
+            const cacheLineIdx = Math.floor(index / CACHE_LINE_SIZE);
+            const offsetInLine = index % CACHE_LINE_SIZE;
+            const blockX = layout.memory.x + cacheLineIdx * (CACHE_LINE_SIZE * layout.memory.cellWidth + layout.memory.blockSpacing);
+            return { x: blockX + offsetInLine * layout.memory.cellWidth, y: layout.memory.y, cacheLineIdx };
+        };
+
+        const getCodeSnippet = (m) => {
+            switch(m) {
+                case 'coalesced': return `// 1. Coalesced (Row Access)\nint tid = threadIdx.x;\nfloat val = matrix[0 * N + tid];\n\n// 100% Bandwidth Utilized\n// 1 Cache Line Fetched`;
+                case 'unaligned': return `// 2. Unaligned (Offset)\nint tid = threadIdx.x;\n// Offset by 2 elements\nfloat val = matrix[tid + 2];\n\n// 50% Bandwidth Utilized\n// 2 Cache Lines Fetched`;
+                case 'uncoalesced': return `// 3. Uncoalesced (Column)\nint tid = threadIdx.x;\nfloat val = matrix[tid * N + 0];\n\n// 12.5% Bandwidth Utilized\n// 8 Cache Lines Fetched!`;
+                case 'shared': return `// 4. Shared Memory Solution\n__shared__ float smem[N][N];\nint tid = threadIdx.x;\n\n// Coalesced load to SMEM\nsmem[0][tid] = matrix[0 * N + tid];\n__syncthreads();\n\n// Fast strided read from SMEM\nfloat val = smem[tid][0];`;
+                default: return "";
+            }
+        };
+
+        const getModeColor = (m) => {
+            switch(m) {
+                case 'coalesced': return COLORS.coalesced;
+                case 'unaligned': return COLORS.unaligned;
+                case 'uncoalesced': return COLORS.uncoalesced;
+                case 'shared': return COLORS.shared;
+                default: return COLORS.coalesced;
+            }
+        };
+
+        const getPhaseText = () => {
+            switch(currentPhase) {
+                case 0: return "Ready. Press Play.";
+                case 1: return "1. Warp issues simultaneous memory requests.";
+                case 2: return "2. Memory controller maps logical requests to physical 1D VRAM.";
+                case 3: 
+                    if (mode === 'coalesced' || mode === 'shared') return "3. High Efficiency: Requests collapse into 1 Cache Line Transaction.";
+                    if (mode === 'unaligned') return "3. Unaligned: Data crosses cache line boundaries. 2 transactions required.";
+                    return "3. Bottleneck: Scattered access forces memory controller to fetch 8 different cache lines!";
+                case 4: 
+                    if (mode === 'shared') return "4. Data loads to Shared Mem, then threads fast-read the strided column.";
+                    return "4. Data travels back across the bus to the Streaming Multiprocessor.";
+                default: return "";
+            }
+        };
+
+        // Draw Function
+        const draw = () => {
+            ctx.clearRect(0, 0, layout.width, layout.height);
+            const modeColor = getModeColor(mode);
+
+            // 1. Draw Physical Memory
+            for (let c = 0; c < NUM_CACHE_LINES; c++) {
+                const blockX = layout.memory.x + c * (CACHE_LINE_SIZE * layout.memory.cellWidth + layout.memory.blockSpacing);
+                
+                ctx.fillStyle = COLORS.cacheLine;
+                ctx.strokeStyle = COLORS.cacheLineBorder;
+                ctx.lineWidth = 1;
+                ctx.fillRect(blockX - 2, layout.memory.y - 5, CACHE_LINE_SIZE * layout.memory.cellWidth + 4, layout.memory.cellHeight + 10);
+                ctx.strokeRect(blockX - 2, layout.memory.y - 5, CACHE_LINE_SIZE * layout.memory.cellWidth + 4, layout.memory.cellHeight + 10);
+                
+                ctx.fillStyle = COLORS.textDim;
+                ctx.font = '10px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(`CL ${c}`, blockX + (CACHE_LINE_SIZE * layout.memory.cellWidth) / 2, layout.memory.y + layout.memory.cellHeight + 25);
+
+                for (let i = 0; i < CACHE_LINE_SIZE; i++) {
+                    ctx.strokeStyle = COLORS.grid;
+                    ctx.strokeRect(blockX + i * layout.memory.cellWidth, layout.memory.y, layout.memory.cellWidth, layout.memory.cellHeight);
+                }
+            }
+
+            // Determine Active Accesses
+            const accesses = [];
+            const activeCacheLines = new Set();
+            
+            for (let t = 0; t < NUM_THREADS; t++) {
+                let row, col, index;
+                if (mode === 'coalesced' || mode === 'shared') {
+                    row = 0; col = t; index = t;
+                } else if (mode === 'unaligned') {
+                    const offset = 2; index = t + offset;
+                    row = Math.floor(index / MAT_SIZE); col = index % MAT_SIZE;
+                } else {
+                    row = t; col = 0; index = t * MAT_SIZE;
+                }
+                
+                const tPos = getThreadPos(t);
+                const mPos = getMatrixPos(row, col);
+                const memPos = getMemoryPos(index);
+                const sPosLoad = getSharedPos(0, t);
+                const sPosRead = getSharedPos(t, 0);
+                
+                activeCacheLines.add(memPos.cacheLineIdx);
+                accesses.push({ t, row, col, index, tPos, mPos, memPos, sPosLoad, sPosRead });
+            }
+
+            // 2. Draw Shared Memory Block
+            if (mode === 'shared') {
+                ctx.font = '11px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = COLORS.text;
+                ctx.fillText("Shared Memory Tile", layout.shared.x + (MAT_SIZE * layout.shared.cellSize) / 2, layout.shared.y - 15);
+
+                for (let r = 0; r < MAT_SIZE; r++) {
+                    for (let c = 0; c < MAT_SIZE; c++) {
+                        const sPos = getSharedPos(r, c);
+                        let isActiveLoad = false;
+                        let isActiveRead = false;
+                        
+                        if (currentPhase >= 4) {
+                            const t4a = Math.min(1, Math.max(0, (progress - 0.75) / 0.125));
+                            const t4b = Math.min(1, Math.max(0, (progress - 0.875) / 0.125));
+                            if (t4a > 0 && accesses.some(a => a.t === c && r === 0)) isActiveLoad = true;
+                            if (t4b > 0 && accesses.some(a => a.t === r && c === 0)) isActiveRead = true;
+                        }
+
+                        ctx.fillStyle = COLORS.bg;
+                        ctx.strokeStyle = COLORS.cacheLineBorder;
+
+                        if (isActiveLoad) {
+                            ctx.fillStyle = COLORS.coalesced + '44'; ctx.strokeStyle = COLORS.coalesced;
+                        } else if (isActiveRead) {
+                            ctx.fillStyle = COLORS.shared + '66'; ctx.strokeStyle = COLORS.shared;
+                        }
+
+                        ctx.fillRect(sPos.x, sPos.y, layout.shared.cellSize, layout.shared.cellSize);
+                        ctx.strokeRect(sPos.x, sPos.y, layout.shared.cellSize, layout.shared.cellSize);
+                    }
+                }
+            }
+
+            // 3. Draw Connections & Particles
+            accesses.forEach(acc => {
+                if (currentPhase >= 1) {
+                    const t1 = Math.min(1, Math.max(0, (progress - 0.0) / 0.25));
+                    const eased1 = easeInOutCubic(t1);
+                    ctx.beginPath();
+                    ctx.moveTo(acc.tPos.x + 20, acc.tPos.y);
+                    ctx.lineTo(acc.tPos.x + 20 + (acc.mPos.x - acc.tPos.x - 20) * eased1, acc.tPos.y + (acc.mPos.y + 15 - acc.tPos.y) * eased1);
+                    ctx.strokeStyle = currentPhase > 3 ? COLORS.grid : modeColor;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    if (currentPhase === 1) {
+                        ctx.beginPath();
+                        ctx.arc(acc.tPos.x + 20 + (acc.mPos.x - acc.tPos.x - 20) * eased1, acc.tPos.y + (acc.mPos.y + 15 - acc.tPos.y) * eased1, 4, 0, Math.PI * 2);
+                        ctx.fillStyle = COLORS.particle; ctx.fill();
+                    }
+                }
+
+                if (currentPhase >= 2) {
+                    const t2 = Math.min(1, Math.max(0, (progress - 0.25) / 0.25));
+                    const eased2 = easeInOutCubic(t2);
+                    const targetX = acc.memPos.x + layout.memory.cellWidth/2;
+                    const targetY = acc.memPos.y;
+                    const cp1x = acc.mPos.x + layout.matrix.cellSize/2;
+                    const cp1y = acc.mPos.y + layout.matrix.cellSize + 50;
+                    const cp2x = targetX;
+                    const cp2y = targetY - 50;
+
+                    const drawBezierPart = (percent) => {
+                        const currentX = Math.pow(1-percent, 3) * (acc.mPos.x + layout.matrix.cellSize/2) + 3 * Math.pow(1-percent, 2) * percent * cp1x + 3 * (1-percent) * Math.pow(percent, 2) * cp2x + Math.pow(percent, 3) * targetX;
+                        const currentY = Math.pow(1-percent, 3) * (acc.mPos.y + layout.matrix.cellSize) + 3 * Math.pow(1-percent, 2) * percent * cp1y + 3 * (1-percent) * Math.pow(percent, 2) * cp2y + Math.pow(percent, 3) * targetY;
+                        return {x: currentX, y: currentY};
+                    };
+
+                    ctx.beginPath();
+                    ctx.moveTo(acc.mPos.x + layout.matrix.cellSize/2, acc.mPos.y + layout.matrix.cellSize);
+                    for(let p=0; p<=eased2; p+=0.05) { const pt = drawBezierPart(p); ctx.lineTo(pt.x, pt.y); }
+                    const finalPt = drawBezierPart(eased2);
+                    ctx.lineTo(finalPt.x, finalPt.y);
+
+                    ctx.strokeStyle = currentPhase > 3 ? COLORS.grid : modeColor;
+                    ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+
+                    if (currentPhase === 2) {
+                        ctx.beginPath(); ctx.arc(finalPt.x, finalPt.y, 4, 0, Math.PI * 2);
+                        ctx.fillStyle = COLORS.particle; ctx.fill();
+                    }
+                }
+
+                if (currentPhase >= 4) {
+                    if (mode === 'shared') {
+                        const t4a = Math.min(1, Math.max(0, (progress - 0.75) / 0.125));
+                        const t4b = Math.min(1, Math.max(0, (progress - 0.875) / 0.125));
+                        if (t4a > 0 && t4b === 0) {
+                            const startX = acc.mPos.x; const startY = acc.mPos.y + 15;
+                            const endX = acc.sPosLoad.x + 8; const endY = acc.sPosLoad.y + 8;
+                            const currX = startX + (endX - startX) * easeInOutCubic(t4a);
+                            const currY = startY + (endY - startY) * easeInOutCubic(t4a);
+                            ctx.beginPath(); ctx.arc(currX, currY, 4, 0, Math.PI * 2);
+                            ctx.fillStyle = COLORS.coalesced; ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = COLORS.coalesced; ctx.fill(); ctx.shadowBlur = 0;
+                        }
+                        if (t4b > 0) {
+                            const startX = acc.sPosRead.x; const startY = acc.sPosRead.y + 8;
+                            const endX = acc.tPos.x + 20; const endY = acc.tPos.y;
+                            const currX = startX + (endX - startX) * easeInOutCubic(t4b);
+                            const currY = startY + (endY - startY) * easeInOutCubic(t4b);
+                            ctx.beginPath(); ctx.arc(currX, currY, 5, 0, Math.PI * 2);
+                            ctx.fillStyle = COLORS.shared; ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = COLORS.shared; ctx.fill(); ctx.shadowBlur = 0;
+                        }
+                    } else {
+                        const t4 = Math.min(1, Math.max(0, (progress - 0.75) / 0.25));
+                        const eased4 = easeInOutCubic(t4);
+                        const startX = acc.mPos.x; const startY = acc.mPos.y + 15;
+                        const endX = acc.tPos.x + 20; const endY = acc.tPos.y;
+                        const currX = startX + (endX - startX) * eased4; const currY = startY + (endY - startY) * eased4;
+                        ctx.beginPath(); ctx.arc(currX, currY, 5, 0, Math.PI * 2);
+                        ctx.fillStyle = modeColor; ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = modeColor; ctx.fill(); ctx.shadowBlur = 0;
+                    }
+                }
+            });
+
+            // 4. Draw Logical Matrix 2D
+            ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = COLORS.text;
+            ctx.fillText("Global 2D Matrix (Row-Major)", layout.matrix.x + (MAT_SIZE * layout.matrix.cellSize) / 2, layout.matrix.y - 20);
+
+            for (let r = 0; r < MAT_SIZE; r++) {
+                for (let c = 0; c < MAT_SIZE; c++) {
+                    const mPos = getMatrixPos(r, c);
+                    ctx.fillStyle = COLORS.bg; ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+                    
+                    let isActive = false;
+                    if (currentPhase >= 1) isActive = accesses.some(a => a.row === r && a.col === c);
+
+                    if (isActive) {
+                        ctx.fillStyle = modeColor + '33'; ctx.strokeStyle = modeColor; ctx.lineWidth = 2;
+                    }
+
+                    ctx.fillRect(mPos.x, mPos.y, layout.matrix.cellSize, layout.matrix.cellSize);
+                    ctx.strokeRect(mPos.x, mPos.y, layout.matrix.cellSize, layout.matrix.cellSize);
+                    
+                    ctx.fillStyle = isActive ? COLORS.text : COLORS.textDim; ctx.font = '10px Inter';
+                    ctx.fillText(`${r*MAT_SIZE + c}`, mPos.x + layout.matrix.cellSize/2, mPos.y + layout.matrix.cellSize/2);
+                }
+            }
+
+            // 5. Draw Threads
+            ctx.textAlign = 'left'; ctx.fillStyle = COLORS.text; ctx.font = '14px Inter, sans-serif';
+            ctx.fillText("Warp Threads", layout.threads.x - 30, layout.threads.yStart - 30);
+
+            for (let t = 0; t < NUM_THREADS; t++) {
+                const tPos = getThreadPos(t);
+                ctx.fillStyle = COLORS.thread; ctx.fillRect(tPos.x - 30, tPos.y - 10, 50, 20);
+                ctx.fillStyle = '#000'; ctx.font = '12px Inter, bold'; ctx.fillText(`T${t}`, tPos.x - 15, tPos.y);
+
+                if (currentPhase >= 4 && progress >= 0.99) {
+                    ctx.strokeStyle = modeColor; ctx.lineWidth = 2; ctx.strokeRect(tPos.x - 32, tPos.y - 12, 54, 24);
+                }
+            }
+
+            // 6. Highlight Memory Cache lines
+            if (currentPhase >= 3) {
+                activeCacheLines.forEach(clIdx => {
+                    const blockX = layout.memory.x + clIdx * (CACHE_LINE_SIZE * layout.memory.cellWidth + layout.memory.blockSpacing);
+                    ctx.fillStyle = (mode === 'coalesced' || mode === 'shared') ? COLORS.coalesced + '33' : COLORS.wasted + '88';
+                    ctx.fillRect(blockX - 2, layout.memory.y - 5, CACHE_LINE_SIZE * layout.memory.cellWidth + 4, layout.memory.cellHeight + 10);
+                    ctx.strokeStyle = modeColor; ctx.lineWidth = 2;
+                    ctx.strokeRect(blockX - 2, layout.memory.y - 5, CACHE_LINE_SIZE * layout.memory.cellWidth + 4, layout.memory.cellHeight + 10);
+
+                    accesses.forEach(acc => {
+                        if (acc.memPos.cacheLineIdx === clIdx) {
+                            ctx.fillStyle = modeColor;
+                            ctx.fillRect(acc.memPos.x, layout.memory.y, layout.memory.cellWidth, layout.memory.cellHeight);
+                        }
+                    });
+                });
+                
+                let fetchMsg = "";
+                if(mode === 'coalesced' || mode === 'shared') fetchMsg = "✅ Fetched 1 Cache Line (Optimal)";
+                else if(mode === 'unaligned') fetchMsg = "⚠️ Fetched 2 Cache Lines (Sub-optimal offset)";
+                else fetchMsg = "❌ Fetched 8 Cache Lines! (Severe Bottleneck)";
+
+                ctx.fillStyle = COLORS.text; ctx.textAlign = 'center'; ctx.font = 'bold 16px Inter';
+                ctx.fillText(fetchMsg, layout.width/2, layout.memory.y - 30);
+            }
+        };
+
+        // UI Update logic
+        const updateDOM = () => {
+            // Update Play/Pause Button
+            const playBtn = document.getElementById('playBtn');
+            const playIconWrap = document.getElementById('playIconWrap');
+            const pauseIconWrap = document.getElementById('pauseIconWrap');
+            const playText = document.getElementById('playText');
+
+            if (isPlaying) {
+                playIconWrap.classList.replace('block', 'hidden');
+                pauseIconWrap.classList.replace('hidden', 'block');
+                playText.innerText = 'Pause';
+                playBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-md font-semibold transition-colors bg-amber-500/20 text-amber-400 hover:bg-amber-500/30';
+            } else {
+                playIconWrap.classList.replace('hidden', 'block');
+                pauseIconWrap.classList.replace('block', 'hidden');
+                playText.innerText = 'Play';
+                playBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-md font-semibold transition-colors bg-blue-600 hover:bg-blue-500 text-white';
+            }
+
+            // Update Mode Toggles
+            const modes = ['coalesced', 'unaligned', 'uncoalesced', 'shared'];
+            modes.forEach(m => {
+                const btn = document.getElementById(`btn-${m}`);
+                if (m === mode) {
+                    if(m==='coalesced') btn.className = 'px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 bg-emerald-500/20 text-emerald-400 shadow-sm border border-emerald-500/50';
+                    if(m==='unaligned') btn.className = 'px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 bg-amber-500/20 text-amber-400 shadow-sm border border-amber-500/50';
+                    if(m==='uncoalesced') btn.className = 'px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 bg-red-500/20 text-red-400 shadow-sm border border-red-500/50';
+                    if(m==='shared') btn.className = 'px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 bg-purple-500/20 text-purple-400 shadow-sm border border-purple-500/50';
+                } else {
+                    btn.className = 'px-3 py-2 rounded-md font-medium text-xs transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700';
+                }
+            });
+
+            // Update Text Data
+            document.getElementById('codeSnippet').innerText = getCodeSnippet(mode);
+            document.getElementById('phaseText').innerText = getPhaseText();
+            
+            const colorClass = mode === 'uncoalesced' ? 'text-red-400' : mode === 'unaligned' ? 'text-amber-400' : 'text-emerald-400';
+            const cacheEl = document.getElementById('statsCacheLines');
+            const utilEl = document.getElementById('statsUtilization');
+            
+            cacheEl.innerHTML = `${stats.cacheLines} <span class="text-slate-500 text-sm">/ 8</span>`;
+            cacheEl.className = `text-2xl font-mono font-bold ${colorClass}`;
+            
+            utilEl.innerText = `${stats.utilization}%`;
+            utilEl.className = `text-2xl font-mono font-bold ${colorClass}`;
+        };
+
+        const updateStateAndDraw = (p) => {
+            progress = p;
+            if (p > 0 && p <= 0.25) currentPhase = 1;
+            else if (p > 0.25 && p <= 0.5) currentPhase = 2;
+            else if (p > 0.5 && p <= 0.75) currentPhase = 3;
+            else if (p > 0.75) currentPhase = 4;
+            else currentPhase = 0;
+
+            updateDOM();
+            draw();
+        };
+
+        const animate = () => {
+            if (!isPlaying) return;
+            progress += 0.004;
+            if (progress > 1.2) progress = 0;
+            updateStateAndDraw(progress);
+            requestRef = requestAnimationFrame(animate);
+        };
+
+        // Event Listeners
+        document.getElementById('playBtn').addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            updateDOM();
+            if (isPlaying) requestRef = requestAnimationFrame(animate);
+            else cancelAnimationFrame(requestRef);
+        });
+
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            isPlaying = false;
+            cancelAnimationFrame(requestRef);
+            const checkpoints = [0, 0.25, 0.5, 0.75, 1.0];
+            const next = checkpoints.find(c => c > progress + 0.01);
+            updateStateAndDraw(next !== undefined ? next : 0);
+        });
+
+        document.getElementById('backBtn').addEventListener('click', () => {
+            isPlaying = false;
+            cancelAnimationFrame(requestRef);
+            const checkpoints = [0, 0.25, 0.5, 0.75, 1.0];
+            const prev = [...checkpoints].reverse().find(c => c < progress - 0.01);
+            updateStateAndDraw(prev !== undefined ? prev : 0);
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            isPlaying = false;
+            cancelAnimationFrame(requestRef);
+            updateStateAndDraw(0);
+        });
+
+        const handleToggleMode = (newMode) => {
+            mode = newMode;
+            if (!isPlaying) updateStateAndDraw(0);
+            else progress = 0;
+
+            if (newMode === 'coalesced') stats = { cacheLines: 1, utilization: 100 };
+            else if (newMode === 'unaligned') stats = { cacheLines: 2, utilization: 50 };
+            else if (newMode === 'uncoalesced') stats = { cacheLines: 8, utilization: 12.5 };
+            else if (newMode === 'shared') stats = { cacheLines: 1, utilization: 100 };
+            
+            updateDOM();
+            if (!isPlaying) draw();
+        };
+
+        document.getElementById('btn-coalesced').addEventListener('click', () => handleToggleMode('coalesced'));
+        document.getElementById('btn-unaligned').addEventListener('click', () => handleToggleMode('unaligned'));
+        document.getElementById('btn-uncoalesced').addEventListener('click', () => handleToggleMode('uncoalesced'));
+        document.getElementById('btn-shared').addEventListener('click', () => handleToggleMode('shared'));
+
+        // Initialize App
+        handleToggleMode('coalesced');
+
+    </script>
+</body>
+</html>

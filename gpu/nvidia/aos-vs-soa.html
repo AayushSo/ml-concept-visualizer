@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AoS vs. SoA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark-reasonable.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/cpp.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; }
+        .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); }
+        
+        /* Custom Radio Buttons */
+        .radio-label input:checked + div {
+            background-color: #3b82f6; color: white; border-color: #3b82f6;
+        }
+        .radio-label input:focus + div {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 p-4 md:p-8 flex flex-col">
+
+    <header class="mb-6">
+        <h1 class="text-3xl font-bold text-slate-900 mb-2">AoS vs. SoA</h1>
+        <p class="text-slate-600 max-w-3xl">
+            Understand how data layout impacts performance on different architectures. The simulation below represents an array of 8 objects, each with 4 properties (Blue, Green, Yellow, Brown).
+        </p>
+    </header>
+
+    <main class="flex-1 flex flex-col lg:flex-row gap-6 max-h-[850px]">
+        
+        <!-- Left Sidebar: Controls & Explanation -->
+        <aside class="lg:w-1/3 flex flex-col gap-4">
+            
+            <div class="glass-panel p-5 rounded-2xl shadow-sm">
+                <h2 class="text-lg font-semibold mb-3">1. Select Hardware Architecture</h2>
+                <div class="flex gap-3">
+                    <label class="radio-label cursor-pointer flex-1">
+                        <input type="radio" name="arch" value="cpu" class="sr-only" checked onchange="updateSim()">
+                        <div class="text-center py-2 px-4 rounded-xl border-2 border-slate-200 font-medium transition-all hover:bg-slate-50">
+                            💻 CPU (Serial)
+                        </div>
+                    </label>
+                    <label class="radio-label cursor-pointer flex-1">
+                        <input type="radio" name="arch" value="gpu" class="sr-only" onchange="updateSim()">
+                        <div class="text-center py-2 px-4 rounded-xl border-2 border-slate-200 font-medium transition-all hover:bg-slate-50">
+                            🎮 GPU (Parallel)
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="glass-panel p-5 rounded-2xl shadow-sm">
+                <h2 class="text-lg font-semibold mb-3">2. Select Data Layout</h2>
+                <div class="flex gap-3">
+                    <label class="radio-label cursor-pointer flex-1">
+                        <input type="radio" name="layout" value="aos" class="sr-only" checked onchange="updateSim()">
+                        <div class="text-center py-2 px-4 rounded-xl border-2 border-slate-200 font-medium transition-all hover:bg-slate-50">
+                            AoS (Array of Structs)
+                        </div>
+                    </label>
+                    <label class="radio-label cursor-pointer flex-1">
+                        <input type="radio" name="layout" value="soa" class="sr-only" onchange="updateSim()">
+                        <div class="text-center py-2 px-4 rounded-xl border-2 border-slate-200 font-medium transition-all hover:bg-slate-50">
+                            SoA (Struct of Arrays)
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Guided Navigation Controls -->
+            <div class="glass-panel p-4 rounded-2xl shadow-sm flex flex-col gap-2">
+                <div class="flex justify-between items-center mb-1">
+                    <h2 class="text-md font-semibold text-slate-700">Memory Access Execution</h2>
+                    <span id="step-counter" class="text-xs font-mono bg-slate-200 px-2 py-1 rounded text-slate-600">Step 0 / 8</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <button onclick="resetSim()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-medium transition-colors text-sm shadow-sm active:scale-95">
+                        Reset
+                    </button>
+                    <div class="flex gap-2">
+                        <button id="btn-back" onclick="prevStep()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-medium transition-colors text-sm shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 active:scale-95">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                            Back
+                        </button>
+                        <button id="btn-next" onclick="nextStep()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors text-sm shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 active:scale-95">
+                            Next Step
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-panel p-5 rounded-2xl shadow-sm flex-1 flex flex-col">
+                <h2 class="text-lg font-semibold mb-2">Analysis</h2>
+                <div id="explanation-box" class="bg-slate-100 rounded-xl p-4 overflow-y-auto text-sm leading-relaxed border border-slate-200 flex-1 min-h-[150px]">
+                    <!-- Dynamic explanation content -->
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Right Side: Unified Code & Canvas Card -->
+        <section class="lg:w-2/3 glass-panel rounded-2xl shadow-sm flex flex-col overflow-hidden relative">
+            
+            <!-- Code Block Section -->
+            <div class="bg-slate-900 p-4 border-b border-slate-700 shrink-0 h-[360px] overflow-y-auto relative">
+                <div class="absolute top-3 right-4 text-[10px] uppercase font-bold tracking-wider text-slate-500 z-10" id="code-lang">C++</div>
+                <pre class="!bg-transparent !p-0 !m-0"><code id="code-box" class="text-xs font-mono leading-relaxed whitespace-pre-wrap language-cpp">
+<!-- Dynamic code content -->
+                </code></pre>
+            </div>
+
+            <!-- Canvas Section -->
+            <div class="flex-1 w-full relative min-h-[400px]">
+                <canvas id="simCanvas" class="absolute inset-0 w-full h-full block"></canvas>
+            </div>
+
+        </section>
+
+    </main>
+
+    <script>
+        // --- Configuration & State ---
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // Colors matching the user's uploaded diagram
+        const COLORS = {
+            x: '#90add5',  // Blue
+            y: '#c6df81',  // Green
+            z: '#fde484',  // Yellow
+            vx: '#ba8772', // Brown
+            bg: '#1e293b',
+            text: '#f8fafc',
+            highlight: 'rgba(239, 68, 68, 0.4)', // Red for bad
+            highlightGood: 'rgba(34, 197, 94, 0.4)', // Green for good
+            chunkBorder: '#64748b'
+        };
+
+        let state = {
+            arch: 'cpu', // 'cpu' or 'gpu'
+            layout: 'aos', // 'aos' or 'soa'
+            animating: false,
+            animProgress: 0, // 0 to 1
+            packets: [],
+            activeChunks: new Set()
+        };
+
+        const MEMORY_SIZE = 32; // 8 items * 4 properties
+        const CHUNK_SIZE = 4;   // Hardware fetches memory in chunks (simulating cache lines/transactions)
+        const ITEMS_COUNT = 8;
+        const PROPERTIES = ['x', 'y', 'z', 'vx'];
+
+        let memoryCells = []; // Array of objects defining layout
+
+        // --- Stepping Logic & State ---
+        let simStep = -1;
+        let maxSteps = 0;
+        let chunkHistory = []; // Array of Sets tracking chunks accessed per step
+
+        const codes = {
+            'cpu-aos': `struct Particle { 
+    float x, y, z;   // Position
+    float vx, vy, vz; // Velocity
+};
+Particle particles[8];
+
+// Sequential processing loop
+for(int i = 0; i < 8; ++i) {
+    // SINGLE cache line load brings the 
+    // ENTIRE struct for 'particles[i]' into L1.
+    particles[i].x += particles[i].vx;
+    particles[i].y += particles[i].vy;
+    particles[i].z += particles[i].vz;
+}`,
+            'cpu-soa': `struct ParticleSoA { 
+    float x[8], y[8], z[8]; 
+    float vx[8], vy[8], vz[8]; 
+};
+ParticleSoA particles;
+
+// Sequential processing loop
+for(int i = 0; i < 8; ++i) {
+    // SCATTERED access! Loading properties
+    // for a single item causes multiple cache misses.
+    particles.x[i] += particles.vx[i];
+    particles.y[i] += particles.vy[i];
+    particles.z[i] += particles.vz[i];
+}`,
+            'gpu-aos': `struct Particle { 
+    float x, y, z; // Position
+    float vx, vy, vz; // Velocity
+};
+
+__global__ void updateParticles(Particle *particles, int N) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N) {
+        // UNCOALESCED! Threads read scattered memory.
+        particles[i].x += particles[i].vx; 
+        particles[i].y += particles[i].vy;
+        particles[i].z += particles[i].vz;
+    }
+}`,
+            'gpu-soa': `struct ParticleSoA { 
+    float *x, *y, *z;
+    float *vx, *vy, *vz;
+};
+
+__global__ void updateParticles(float *x, float *y, float *z,
+                                float *vx, float *vy, float *vz, int N) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N) {
+        // COALESCED memory access!
+        x[i] += vx[i]; 
+        y[i] += vy[i];
+        z[i] += vz[i];
+    }
+}`
+        };
+
+        // --- Explanation Content ---
+        const explanations = {
+            'cpu-aos': `
+                <h3 class="font-bold text-lg mb-2 text-emerald-700">CPU + AoS: Excellent for Objects</h3>
+                <p class="mb-2"><strong>The Task:</strong> The CPU runs a loop, processing one complete particle at a time (Particles 0 through 7).</p>
+                <p><strong>Result:</strong> High cache hit rate. Loading the position 'x' brings 'y', 'z', and 'vx' into the CPU's fast cache automatically. Click <strong>Next Step</strong> to process particles one by one.</p>
+            `,
+            'cpu-soa': `
+                <h3 class="font-bold text-lg mb-2 text-red-600">CPU + SoA: Cache Unfriendly</h3>
+                <p class="mb-2"><strong>The Task:</strong> The CPU runs a loop, updating one complete particle at a time.</p>
+                <p><strong>Result:</strong> Cache misses. Properties x, y, z, and vx are stored far apart. The CPU must fetch multiple distinct memory chunks just to update one particle. Click <strong>Next Step</strong> to see the scattered access.</p>
+            `,
+            'gpu-aos': `
+                <h3 class="font-bold text-lg mb-2 text-red-600">GPU + AoS: Uncoalesced Memory</h3>
+                <p class="mb-2"><strong>The Task:</strong> 8 GPU threads execute the same instruction simultaneously, updating the position for their respective particles.</p>
+                <p><strong>Result:</strong> Uncoalesced access. When all threads read property 'x', the hardware must fetch 8 different memory chunks. This wastes bandwidth. Click <strong>Next Step</strong> to see the warp access properties.</p>
+            `,
+            'gpu-soa': `
+                <h3 class="font-bold text-lg mb-2 text-emerald-700">GPU + SoA: Coalesced Memory!</h3>
+                <p class="mb-2"><strong>The Task:</strong> 8 GPU threads execute the same instruction simultaneously.</p>
+                <p><strong>Result:</strong> Coalesced access. When all threads read property 'x', they access contiguous memory. The GPU groups them into minimal transactions. Click <strong>Next Step</strong> to see the efficient warp access.</p>
+            `
+        };
+
+        // --- Core Logic & Math ---
+
+        function buildMemoryLayout() {
+            memoryCells = [];
+            for (let i = 0; i < MEMORY_SIZE; i++) {
+                let propIndex, itemIndex;
+                if (state.layout === 'aos') {
+                    // AoS: x0, y0, z0, vx0, x1, y1...
+                    itemIndex = Math.floor(i / 4);
+                    propIndex = i % 4;
+                } else {
+                    // SoA: x0..x7, y0..y7, z0..z7, vx0..vx7
+                    propIndex = Math.floor(i / ITEMS_COUNT);
+                    itemIndex = i % ITEMS_COUNT;
+                }
+                memoryCells.push({
+                    index: i,
+                    item: itemIndex,
+                    prop: PROPERTIES[propIndex],
+                    color: COLORS[PROPERTIES[propIndex]]
+                });
+            }
+        }
+
+        function getTargetIndicesForStep(step) {
+            if (step < 0) return [];
+            let targets = [];
+            if (state.arch === 'cpu') {
+                // CPU task step: Read x,y,z,vx for item 'step'
+                targets = memoryCells.filter(cell => cell.item === step).map(c => c.index);
+            } else {
+                // GPU task step: Read property 'step' (X, Y, Z, VX) for all 8 items
+                const prop = PROPERTIES[step];
+                targets = memoryCells.filter(cell => cell.prop === prop).map(c => c.index);
+            }
+            return targets;
+        }
+
+        // --- Rendering ---
+
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            // Handle high-DPI displays
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            width = rect.width;
+            height = rect.height;
+            draw();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawRoundedRect(x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+        }
+
+        function draw() {
+            if (!width || !height) return;
+            ctx.clearRect(0, 0, width, height);
+
+            // Calculate layout geometry
+            const padding = 40;
+            const processorY = height - 100;
+            const memoryY = processorY - 140; // Anchored closer to the threads
+            const cellW = (width - padding * 2) / MEMORY_SIZE;
+            const cellH = 40;
+
+            // Gather all active chunks up to current step
+            let allActiveChunks = new Set();
+            for (let i = 0; i <= simStep; i++) {
+                if (chunkHistory[i]) {
+                    chunkHistory[i].forEach(c => allActiveChunks.add(c));
+                }
+            }
+
+            // Gather chunks JUST for the current step (for brighter highlight)
+            let currentChunks = new Set();
+            if (simStep >= 0 && chunkHistory[simStep]) {
+                currentChunks = chunkHistory[simStep];
+            }
+
+            // 1. Draw Memory Chunks (Cache Lines)
+            ctx.lineWidth = 3;
+            for(let i=0; i < MEMORY_SIZE / CHUNK_SIZE; i++) {
+                const cx = padding + (i * CHUNK_SIZE * cellW);
+                const cw = cellW * CHUNK_SIZE;
+                
+                if (allActiveChunks.has(i)) {
+                    const isEfficient = (state.arch === 'cpu' && state.layout === 'aos') || 
+                                        (state.arch === 'gpu' && state.layout === 'soa');
+                    
+                    // Brighter highlight if it was accessed in the *current* step
+                    const isCurrent = currentChunks.has(i);
+                    const opacity = isCurrent ? 0.6 : 0.2; // Faded if from a previous step
+                    
+                    ctx.fillStyle = isEfficient ? `rgba(34, 197, 94, ${opacity})` : `rgba(239, 68, 68, ${opacity})`;
+                    ctx.fillRect(cx - 2, memoryY - 6, cw + 4, cellH + 12);
+                    
+                    ctx.strokeStyle = isEfficient ? (isCurrent ? '#15803d' : '#86efac') : (isCurrent ? '#b91c1c' : '#fca5a5');
+                    ctx.strokeRect(cx - 2, memoryY - 6, cw + 4, cellH + 12);
+                } else {
+                    ctx.strokeStyle = '#cbd5e1';
+                    ctx.strokeRect(cx - 2, memoryY - 6, cw + 4, cellH + 12);
+                }
+            }
+
+            // 2. Draw Memory Cells
+            ctx.lineWidth = 1;
+            memoryCells.forEach((cell, i) => {
+                const x = padding + i * cellW;
+                ctx.fillStyle = cell.color;
+                ctx.fillRect(x, memoryY, cellW - 2, cellH);
+                ctx.strokeStyle = '#1e293b';
+                ctx.strokeRect(x, memoryY, cellW - 2, cellH);
+
+                // Cell label (Property)
+                if (cellW > 15) {
+                    ctx.fillStyle = '#000';
+                    ctx.font = '10px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(cell.prop, x + (cellW-2)/2, memoryY + 15);
+                    ctx.fillStyle = '#475569';
+                    ctx.font = '9px monospace';
+                    ctx.fillText(cell.item, x + (cellW-2)/2, memoryY + 30);
+                }
+                
+                // Save coordinates for animation
+                cell.screenX = x + (cellW-2)/2;
+                cell.screenY = memoryY + cellH;
+            });
+
+            // Dynamic text based on current step
+            let taskText = "Waiting to execute...";
+            if (simStep >= 0) {
+                if (state.arch === 'cpu') {
+                    taskText = `Executing Step ${simStep + 1}: Processing Particle ${simStep} (x, y, z, vx)`;
+                } else {
+                    taskText = `Executing Step ${simStep + 1}: Warp reading Property '${PROPERTIES[simStep].toUpperCase()}'`;
+                }
+            }
+
+            // 3. Draw Processors
+            const processors = [];
+            if (state.arch === 'cpu') {
+                // One big CPU
+                const px = width/2 - 80;
+                const pw = 160;
+                processors.push({ x: px, w: pw, cx: px + pw/2 });
+                
+                ctx.fillStyle = '#334155';
+                drawRoundedRect(px, processorY + 15, pw, 60, 8);
+                ctx.fill();
+                
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('CPU Core', px + pw/2, processorY + 50);
+                
+                // Moved status text above the CPU box to match GPU layout
+                ctx.fillStyle = simStep >= 0 ? '#d97706' : '#64748b';
+                ctx.font = 'bold 13px monospace';
+                ctx.fillText(taskText, width/2, processorY - 4);
+
+            } else {
+                // 8 GPU Threads
+                const totalW = Math.min(width - padding * 2, 600);
+                const startX = width/2 - totalW/2;
+                const threadW = (totalW / ITEMS_COUNT) - 5;
+                
+                ctx.fillStyle = '#475569';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('GPU Warp (8 Threads executing in parallel)', width/2, processorY - 20);
+                
+                ctx.fillStyle = simStep >= 0 ? '#d97706' : '#64748b';
+                ctx.font = 'bold 13px monospace';
+                ctx.fillText(taskText, width/2, processorY - 4);
+
+                for(let i=0; i<ITEMS_COUNT; i++) {
+                    const px = startX + i * (totalW / ITEMS_COUNT);
+                    processors.push({ x: px, w: threadW, cx: px + threadW/2 });
+                    
+                    ctx.fillStyle = '#10b981'; // Greenish for GPU
+                    drawRoundedRect(px, processorY + 15, threadW, 50, 6);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '12px sans-serif';
+                    ctx.fillText(`T${i}`, px + threadW/2, processorY + 45);
+                }
+            }
+
+            // 4. Draw Data Paths and Packets
+            const targets = simStep >= 0 ? getTargetIndicesForStep(simStep) : [];
+
+            if (targets.length > 0) {
+                targets.forEach((targetIndex, i) => {
+                    const cell = memoryCells[targetIndex];
+                    let proc;
+                    if (state.arch === 'cpu') {
+                        proc = processors[0]; // All go to CPU
+                    } else {
+                        proc = processors[i]; // Thread i handles target i
+                    }
+                    
+                    const startX = cell.screenX;
+                    const startY = cell.screenY;
+                    const endX = proc.cx;
+                    const endY = processorY + 15; // Connects accurately to top edge of both CPU and GPU boxes
+
+                    // Draw connection line (persists after animation to show access pattern)
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    
+                    if (state.animating) {
+                        const t = state.animProgress;
+                        ctx.strokeStyle = `rgba(148, 163, 184, ${Math.min(t * 3, 0.4)})`; // Fade in quickly
+                    } else {
+                        // Persist at constant opacity
+                        ctx.strokeStyle = `rgba(148, 163, 184, 0.4)`; 
+                    }
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // Draw moving packet
+                    if (state.animating) {
+                        const t = state.animProgress;
+                        const easeOutQuart = 1 - Math.pow(1 - t, 4);
+                        
+                        const curX = startX + (endX - startX) * easeOutQuart;
+                        const curY = startY + (endY - startY) * easeOutQuart;
+
+                        ctx.beginPath();
+                        ctx.arc(curX, curY, 6, 0, Math.PI * 2);
+                        ctx.fillStyle = cell.color;
+                        ctx.fill();
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                    }
+                });
+            }
+        }
+
+        // --- Interaction & Animation ---
+
+        function updateUIForStep() {
+            // Update buttons
+            document.getElementById('btn-back').disabled = (simStep === -1 || state.animating);
+            document.getElementById('btn-next').disabled = (simStep >= maxSteps - 1 || state.animating);
+            
+            // Update Step counter text
+            document.getElementById('step-counter').innerText = `Step ${simStep + 1} / ${maxSteps}`;
+        }
+
+        function updateSim() {
+            // Read UI Radios
+            state.arch = document.querySelector('input[name="arch"]:checked').value;
+            state.layout = document.querySelector('input[name="layout"]:checked').value;
+            
+            // Set Max Steps
+            maxSteps = state.arch === 'cpu' ? ITEMS_COUNT : PROPERTIES.length;
+
+            // Update Text & Code
+            const key = `${state.arch}-${state.layout}`;
+            document.getElementById('explanation-box').innerHTML = explanations[key];
+            
+            // Syntax Highlighting
+            const codeBox = document.getElementById('code-box');
+            codeBox.textContent = codes[key];
+            codeBox.className = 'text-xs font-mono leading-relaxed whitespace-pre-wrap language-cpp'; // Reset classes
+            delete codeBox.dataset.highlighted; // Clear highlight.js state
+            hljs.highlightElement(codeBox);
+            
+            document.getElementById('code-lang').innerText = state.arch === 'cpu' ? 'C++' : 'CUDA';
+            
+            resetSim();
+        }
+
+        function resetSim() {
+            simStep = -1;
+            chunkHistory = [];
+            state.animating = false;
+            state.activeChunks.clear();
+            buildMemoryLayout();
+            updateUIForStep();
+            draw();
+        }
+
+        function prevStep() {
+            if (state.animating || simStep < 0) return;
+            
+            simStep--;
+            chunkHistory.pop(); // Remove the chunks from the undone step
+            
+            updateUIForStep();
+            draw(); // Immediate redraw without animation
+        }
+
+        function nextStep() {
+            if (state.animating || simStep >= maxSteps - 1) return;
+            
+            simStep++;
+            const targets = getTargetIndicesForStep(simStep);
+            
+            // Calculate chunks hit in this step
+            const stepChunks = new Set();
+            targets.forEach(idx => {
+                stepChunks.add(Math.floor(idx / CHUNK_SIZE));
+            });
+            chunkHistory[simStep] = stepChunks;
+
+            updateUIForStep();
+            
+            // Animation logic
+            state.animating = true;
+            state.animProgress = 0;
+            state.packets = targets;
+            
+            // Disable buttons during animation
+            document.getElementById('btn-back').disabled = true;
+            document.getElementById('btn-next').disabled = true;
+            
+            let startTime = null;
+            const duration = 800; // ms per step
+
+            function stepAnim(timestamp) {
+                if (!startTime) startTime = timestamp;
+                const elapsed = timestamp - startTime;
+                
+                state.animProgress = Math.min(elapsed / duration, 1);
+                draw();
+                
+                if (state.animProgress < 1) {
+                    requestAnimationFrame(stepAnim);
+                } else {
+                    setTimeout(() => {
+                        state.animating = false;
+                        updateUIForStep(); // Re-enable buttons
+                        draw(); 
+                    }, 200);
+                }
+            }
+            
+            requestAnimationFrame(stepAnim);
+        }
+
+        // Initialize
+        setTimeout(() => {
+            resizeCanvas();
+            updateSim();
+        }, 100);
+
+    </script>
+</body>
+</html>
