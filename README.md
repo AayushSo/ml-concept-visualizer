@@ -28,7 +28,7 @@ Traditional machine learning algorithms, evaluation metrics, and clustering meth
 - Classification Metrics Explorer (Accuracy, Precision, Recall, F1, ROC, PR curves)
 - Decision Trees, KNN, Logistic Regression, SVM
 - Neural Network Classification
-- K-Means & Hierarchical Clustering
+- K-Means, Hierarchical and DBSCAN Clustering
 
 ### 🧩 CNN Architectures
 
